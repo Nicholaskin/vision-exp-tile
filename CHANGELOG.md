@@ -1,7 +1,29 @@
 # 更新日志（Release Changelog）
 
-> 全部版本记录（v0.1.0 → v0.4.2），最新在上；本文件 = GitHub Release 的 changelog 栏（由 .github/workflows/release.yml 自动读取）。
+> 全部版本记录（v0.1.0 → v0.4.3），最新在上；本文件 = GitHub Release 的 changelog 栏（由 .github/workflows/release.yml 自动读取）。
 > 注：README 只展示最新一期更新内容（使用者视角）；本文件保留每期完整记录（含历史）。
+
+## v0.4.3（2026-08-30）
+
+**本次更新完全由 DeepSeek Harness 自主完成。**
+
+### 背景与目标
+
+v0.4.2 发布后进入「仅本地同步、暂不发布」收尾：把工作区已新增/修正的代码与文档同步到 v0.4.3 版本号，完成 README/CHANGELOG 更新块对齐，并本地构建双 zip 留存。内容包括：修正 `package.json` 仓库元数据占位符、统一计费表述（避免「不统计」等易误读措辞）、补充「隐私与数据说明」、为 pipeline/region_crop 增加过期临时产物清理。
+
+### 新功能与改动
+
+1. **仓库元数据修复**：`package.json` 的 `repository` / `homepage` / `bugs` 由占位作者/仓库地址改为实际仓库地址。原账号（`Nicholas023`）已被停用，仓库迁移至 `Nicholaskin/vision-exp-tile`；v0.4.3 打包时元数据已指向新地址，包内链接开箱可用。
+2. **计费表述诚实化**：README、工具描述、脚本注释统一为「不代为统计/不显示 token 与费用，实际以 DeepSeek 官方 API 平台账单为准」，替换旧的「不统计 token / 不计算费用」表述。
+3. **新增「隐私与数据说明」**：图片以 base64 直连 DeepSeek 官方视觉 API、按官方账单计费；pipeline/smart 过程明细落盘系统临时目录（可用 `out_dir` 指定）；插件默认清理超过 24 小时的旧临时目录/区域图（仅插件自身前缀，不触碰用户指定 `out_dir`）。
+4. **过期清理模块**：新增 `src/temp-cleanup.js`（`cleanupOldTempArtifacts`：扫描系统临时目录，按 mtime 清理 >24h 的 `vision-tile-pipeline-*` 目录与 `region-*.png` / `vision-tile-ocr-*.png` 文件；支持注入 `now`/`ttlMs`/`tmpRoot`/`excludePaths`；异常静默容错），并在 `src/pipeline.js` / `src/index.js`（region_crop 路径）结束时调用。
+5. **测试**：新增 `tests/temp-cleanup.test.js`（5 项：默认不删新鲜文件、过期前缀清理且非前缀保留、注入 now/ttlMs 可控、excludePaths 保护、异常路径不抛），并加入 `package.json` 的 `test` 显式列表。
+
+### 验证
+
+- `npm test`：**168/168** 全绿（原 163 + temp-cleanup.test.js 5 项）；
+- `npm run release-pack`：生成 `dist/vision-exp-tile-v0.4.3.zip` 与 `dist/vision-exp-tile-v0.4.3-nopython.zip`；
+- 本版为「仅本地同步、暂不发布」：**未 push、未打 tag、未创建 GitHub Release、未 git commit**，全部保留在工作区。
 
 ## v0.4.2（2026-08-24）
 

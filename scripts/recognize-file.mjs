@@ -8,7 +8,7 @@
  *   node scripts/recognize-file.mjs "D:\lfn\DeepseekCLI Files\图像识别输入\L海关题干-已转正.jpg" "完整识别题干内容" 0
  *
  * 说明：key 从环境变量 DEEPSEEK_API_KEY 或 ~/.dsh/.credentials.yaml 读取；
- *       识别结果打印到控制台（不统计 token/费用）。
+ *       识别结果打印到控制台（不代为统计/不显示 token 与费用，实际以官方账单为准）。
  */
 
 import { readFileSync, existsSync } from 'node:fs';

@@ -4,7 +4,7 @@
  * 为视觉模型 deepseek-v4-flash-vision-exp 定制的大图分块识别插件。
  * 注册两个模型工具：
  *   - vision_tile_split     纯切图 + 坐标标注 + 分块聚合逻辑输出（不调用视觉 API）
- *   - vision_tile_recognize 切图后直连 DeepSeek 视觉 API 识别并聚合，输出结构化答案（不统计 token/费用）
+ *   - vision_tile_recognize 切图后直连 DeepSeek 视觉 API 识别并聚合，输出结构化答案（不代为统计/不显示 token 与费用，实际计费以 DeepSeek 官方 API 平台账单为准）
  *
  * 形态：裸工具对象 + ctx.tools.register（不引入 defineTool，保持与官方工具一致的注册方式）。
  * 不引入新依赖，仅使用 node:path / node:fs/promises 与既有 src 模块。
@@ -25,6 +25,7 @@ import { splitImage, tileFileName, cropRegion, normalizeRect } from './tile-engi
 import { buildSplitResultText } from './prompts.js';
 import { recognize, previewImage, recognizeRegion } from './vision-client.js';
 import { runPipeline } from './pipeline.js';
+import { cleanupOldTempArtifacts } from './temp-cleanup.js';
 import { NS, normalizeConfig } from './config.js';
 import { settingsNamespace } from '@deepseek-ai/dsh-settings';
 import z from '@deepseek-ai/schemastery';
@@ -479,7 +480,7 @@ export function createSplitTool(ctx, cfg) {
 /* ------------------------------------------------------------------ */
 
 /**
- * 构建 vision_tile_recognize 工具：切图后直连 DeepSeek 视觉 API 识别并聚合（不统计 token/费用）。
+ * 构建 vision_tile_recognize 工具：切图后直连 DeepSeek 视觉 API 识别并聚合（不代为统计/不显示 token 与费用，实际计费以 DeepSeek 官方 API 平台账单为准）。
  * @param {object} ctx - Cordis 上下文。
  * @param {object} cfg - 归一化后的配置。
  */
@@ -494,7 +495,7 @@ export function createRecognizeTool(ctx, cfg) {
       'pipeline 模式追加：ocr_engine（auto/paddle/rapid/windows，默认 auto=优先 rapid 自动降级）；interest_concurrency（兴趣点 API 并行数 1..4，默认 2）；preprocess（auto/off，默认 auto=深底自动反色/低对比二值化/手写放大）；upgrade（full/low/off，默认 full=低置信或手写或深底失败时自动升级视觉 API 转录）；block_size/cut_threshold/overlap/group_size/format/quality/out_dir/with_overview 仅 full 模式有效。',
       'smart 模式流程（请模型按此执行）：1) 本工具先返回预检结果（有无文字、文字区域、兴趣点区域、整图概要）；2) 若重点内容不明确，先向用户提问；3) 文字区域→vision_region_crop(recognize=true) 视觉直读转录（本插件自带能力，跨环境可用）；4) 兴趣点→vision_region_crop(recognize=true) 逐点识别；5) 汇总成完整答案。',
       '读取 API key：从环境变量（默认 DEEPSEEK_API_KEY）读取；未配置会给出明确提示。',
-      '返回：预检清单/整体答案 + 统计（模式、区域数、请求数）。不统计 token、不计算费用。'
+      '返回：预检清单/整体答案 + 统计（模式、区域数、请求数）。不代为统计/不显示 token 与费用（实际计费以 DeepSeek 官方账单为准）。'
     ].join(' '),
     parameters: {
       type: 'object',
@@ -552,7 +553,7 @@ export function createRecognizeTool(ctx, cfg) {
         },
         required: ['answer', 'mode', 'imageCount', 'stages', 'tiles']
       },
-      // 识别结果渲染成中文文本：答案 + 分隔线 + 统计（不含 token/费用）。
+      // 识别结果渲染成中文文本：答案 + 分隔线 + 统计（不代为统计 token/费用）。
       // smart 模式额外输出"区域清单 + 下一步指引"（供模型继续编排）。
       render: (_args, value) => {
         const lines = [];
@@ -665,6 +666,7 @@ export function createRecognizeTool(ctx, cfg) {
 
       // 4b. pipeline：插件全自动（预检 → 本地 OCR + 像素网格 → 兴趣点区域识别 → 本地模板汇总）。
       if (strategyRaw === 'pipeline') {
+        try { await cleanupOldTempArtifacts(); } catch { /* 清理失败静默 */ }
         const interestConcurrency = args.interest_concurrency === undefined
           ? undefined
           : readInt(args.interest_concurrency, 2, 1, 4, 'interest_concurrency', tool);
@@ -729,7 +731,7 @@ export function createRecognizeTool(ctx, cfg) {
         grid = calcRowsCols(r.tiles);
       }
 
-      // 5. 调用识别引擎（内部按块数选择单请求/分层聚合；不统计 token、不计费）。
+      // 5. 调用识别引擎（内部按块数选择单请求/分层聚合；不代为统计 token/费用）。
       const result = await recognize({
         apiKey,
         baseURL: cfg.baseURL,
@@ -781,7 +783,7 @@ export function createRecognizeTool(ctx, cfg) {
         }
       }
 
-      // 8. 汇总返回（不含 token/费用字段）。
+      // 8. 汇总返回（不代为统计 token/费用字段）。
       return {
         answer: result.answer,
         mode: result.mode,
@@ -907,6 +909,10 @@ export function createRegionCropTool(ctx, cfg) {
       const outDir = outDirRaw.length > 0
         ? pathResolve(img.cwd ?? process.cwd(), outDirRaw)
         : tmpdir();
+        // 过期临时文件清理（仅插件前缀；不触碰用户指定 out_dir）
+        try {
+          await cleanupOldTempArtifacts({ excludePaths: outDirRaw.length > 0 ? [outDir] : [] });
+        } catch { /* 清理失败静默 */ }
       await mkdir(outDir, { recursive: true });
       const outPath = join(outDir, `region-${Date.now()}-${randomBytes(3).toString('hex')}.png`);
       await writeFile(outPath, cropped.buffer);

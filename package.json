@@ -1,7 +1,7 @@
 {
   "name": "vision-exp-tile",
-  "version": "0.4.2",
-  "description": "为 deepseek-v4-flash-vision-exp 量身定制的大图智能识图插件：整图预检 → 本地 OCR+像素网格（文字）+ 兴趣点按比例切块（最长边 800）→ 汇总；保留全图 800x800 网格切块模式。不统计 token、不计算费用。v0.4.2：picturereader 适应性优化（共存分工引导/视觉端点复用/OCR venv 共享）。",
+  "version": "0.4.3",
+  "description": "为 deepseek-v4-flash-vision-exp 量身定制的大图智能识图插件：整图预检 → 本地 OCR+像素网格（文字）+ 兴趣点按比例切块（最长边 800）→ 汇总；保留全图 800x800 网格切块模式。不代为统计/不显示 token 与费用，实际计费以 DeepSeek 官方 API 平台账单为准。v0.4.3：仓库元数据修复 / 计费表述诚实化 / 新增隐私与数据说明 / 过期临时产物清理。",
   "type": "module",
   "main": "src/index.js",
   "exports": {
@@ -19,7 +19,7 @@
     "cordis.patch.yml"
   ],
   "scripts": {
-    "test": "node --test tests/client.test.js tests/client-bundle.test.js tests/device.test.js tests/engine.test.js tests/gpu.test.js tests/grid.test.js tests/handwrite.test.js tests/ocr-pool.test.js tests/peer.test.js tests/preprocess.test.js tests/prompts.test.js tests/region.test.js tests/settings.test.js tests/smart.test.js tests/suite-env.test.js tests/v014.test.js",
+    "test": "node --test tests/client.test.js tests/client-bundle.test.js tests/device.test.js tests/engine.test.js tests/gpu.test.js tests/grid.test.js tests/handwrite.test.js tests/ocr-pool.test.js tests/peer.test.js tests/preprocess.test.js tests/prompts.test.js tests/region.test.js tests/settings.test.js tests/smart.test.js tests/suite-env.test.js tests/v014.test.js tests/temp-cleanup.test.js",
     "selfcheck": "node scripts/self-check.mjs",
     "release-pack": "powershell -ExecutionPolicy Bypass -File scripts/release-pack.ps1"
   },
@@ -39,11 +39,11 @@
   "author": "vision-exp-tile contributors",
   "repository": {
     "type": "git",
-    "url": "https://github.com/<你的GitHub用户名>/vision-exp-tile.git"
+    "url": "https://github.com/Nicholaskin/vision-exp-tile.git"
   },
-  "homepage": "https://github.com/<你的GitHub用户名>/vision-exp-tile#readme",
+  "homepage": "https://github.com/Nicholaskin/vision-exp-tile#readme",
   "bugs": {
-    "url": "https://github.com/<你的GitHub用户名>/vision-exp-tile/issues"
+    "url": "https://github.com/Nicholaskin/vision-exp-tile/issues"
   },
   "engines": {
     "node": ">=20"

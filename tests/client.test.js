@@ -337,7 +337,7 @@ test('recognize single 模式：单请求、图片数、答案', async () => {
   assert.equal(res.imageCount, 2);
   assert.equal(callCount, 1);
   assert.equal(res.answer, '整图描述');
-  // 按需求：recognize 不统计 token、不计算费用 → 返回中不应出现 usage/cost 字段
+  // 按需求：recognize 不代为统计/不显示 token 与费用 → 返回中不应出现 usage/cost 字段
   assert.equal(res.usage, undefined);
   assert.equal(res.cost, undefined);
 });

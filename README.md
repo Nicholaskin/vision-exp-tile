@@ -6,12 +6,12 @@
 
 各位随意取用：有问题可以提交 **Issue**（如果能自己改的话就更好了——你提交了 Issue，我也只能给 DeepSeek 看然后让他自己改；我本人尝试过多次，均未学会任何写代码的能力，也是乘上 **AI** 的东风，让我有了开发插件的能力）。
 
-> **本次更新（v0.4.2）完全由 DeepSeek Harness 自主完成**，内容：
-> ① **与 picturereader 共存分工引导**：探测 picturereader 是否在场（注册表工具 `image_scan` / 插件目录双通道），在场时给本插件三个工具（`vision_tile_split` / `vision_tile_recognize` / `vision_region_crop`）的末尾追加一句分工引导——大图切块/批量/区域识别用本插件，小图/像素级/整页文档用 picturereader 的 `image_scan`/`image_ocr`/`image_batch`/`document_to_image`；省模型空转轮数。不在场则工具描述与以前逐字节一致（零回归）。
-> ② **视觉端点复用**：picturereader 已在 settings.yaml 配好的 `vlm_base`/`vlm_model`，当本插件 baseURL/model 未显式设置时直接复用（免重复配置；用户显式 > peer > 默认）。
-> ③ **OCR venv 共享**：本插件默认 venv 缺失时，复用 picturereader 已建好的 `paddle_venv`/`rapid_venv`（同目录 `$HOME/<venv>`，失败安全回退）。
-> ④ **其余**：新增 `tests/peer.test.js`（共存探测/分工/peer 配置读取/venv 优先级）；无新 npm 依赖，不改动 picturereader 任何文件。
-> ⑤ **致谢与边界声明**：本版与上游 [picturereader](https://github.com/jing-hy/picturereader)（MIT；作者 @jing-hy，感谢上游作者与社区）做了共存协作优化。本插件保持**完全独立**：**不安装 picturereader 时功能与旧版完全一致**；所有协作探测失败都会安全回退（自动当作"未安装"）；双方互不修改、互不占用——picturereader 的代码、配置与文件均不被本插件改动。
+> **本次更新（v0.4.3）完全由 DeepSeek Harness 自主完成**，内容：
+> ① **修复 package.json 仓库元数据占位符**：`repository` / `homepage` / `bugs` 由占位作者/仓库地址改为实际仓库地址 `Nicholaskin/vision-exp-tile`，避免 npm 安装提示警告。
+> ② **计费表述诚实化**：README、工具描述、脚本注释统一为「不代为统计/不显示 token 与费用，实际以 DeepSeek 官方 API 平台账单为准」，替换容易误读的「不统计 token / 不计算费用」。
+> ③ **新增「隐私与数据说明」**：图片直连官方云 API、按官方账单计费；过程明细落盘系统临时目录；插件默认清理超过 24 小时的旧临时目录/区域图（仅插件自身前缀，不触碰用户显式指定 out_dir）。
+> ④ **过期清理模块**：新增 `src/temp-cleanup.js`（过期临时产物清理，仅插件前缀、ttl 默认 24h、可注入 now/ttlMs 便于测试、异常容错），并在 pipeline / region_crop 结束时调用。
+> ⑤ **测试**：新增 `tests/temp-cleanup.test.js`（5 项），`npm test` **168/168** 全绿。
 
 # vision-exp-tile ◆ 为 deepseek-v4-flash-vision-exp 定制的大图智能识图插件
 
@@ -19,14 +19,14 @@
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org)
-[![version](https://img.shields.io/badge/vision--exp--tile-v0.4.2-orange.svg)](#)
+[![version](https://img.shields.io/badge/vision--exp--tile-v0.4.3-orange.svg)](#)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-plugin-purple.svg)](#)
 
-> 独立 DSH 插件：**零依赖任何第三方 DSH 插件**（picturereader 等均未使用，仅用纯官方 DSH 服务 + 可选开源 OCR 环境）。把大图切成 **800×800 无损小块**（官方缩放规则的"甜蜜点"：块在模型侧**不被降采样**、每块**≤384 token**），携带**坐标标注 + 分块聚合逻辑**直接调用 DeepSeek 视觉 API 完成识别与聚合，返回结构化答案（**不统计 token、不计算费用**）。
+> 独立 DSH 插件：**零依赖任何第三方 DSH 插件**（picturereader 等均未使用，仅用纯官方 DSH 服务 + 可选开源 OCR 环境）。把大图切成 **800×800 无损小块**（官方缩放规则的"甜蜜点"：块在模型侧**不被降采样**、每块**≤384 token**），携带**坐标标注 + 分块聚合逻辑**直接调用 DeepSeek 视觉 API 完成识别与聚合，返回结构化答案（**不代为统计/不显示 token 与费用，实际计费以 DeepSeek 官方 API 平台账单为准**）。
 
 ## 🎬 宣传片（v0.4.0）
 
-> [▶️ 观看宣传片（128 秒 · 带 BGM · 含致谢页）](https://github.com/Nicholas023/vision-exp-tile/releases/download/v0.4.0/vision-exp-tile-v0.4.0-promo-bgm.mp4)
+> [▶️ 观看宣传片（128 秒 · 带 BGM · 含致谢页）](https://github.com/Nicholaskin/vision-exp-tile/releases/download/v0.4.0/vision-exp-tile-v0.4.0-promo-bgm.mp4)
 > 视频背景音乐：《春景故人来》—— 铁痕电台-MSR × Kirara Magic；DeepSeek 官方鲸鱼形象（deepseek.com）。
 
 ## 一、为什么要 800×800
@@ -118,7 +118,7 @@ dsh web
 
 其它通用参数：`rotate`（0/90/180/270 转正）、`max_tokens`；
 **健壮性**：模型只思考未输出正文（content 为空）时自动放大 max_tokens 重试一次；仍为空报出 finish_reason 与思考摘要。
-**返回**：预检清单/答案 + 统计；不统计 token、不计算费用。
+**返回**：预检清单/答案 + 统计；不代为统计/不显示 token 与费用，实际计费以 DeepSeek 官方 API 平台账单为准。
 
 ### 3. `vision_region_crop` —— 兴趣点/文字区域裁剪识别
 
@@ -145,6 +145,12 @@ dsh web
 | `devicePowerProbe` | `true` | 电池/低功耗探测（B）；false=不探测（不应用省电推荐） |
 | `platformFallback` | `auto` | ARM/WSL/容器平台降级（C）：auto=按环境自动降级 / on=强制降级 / off=关闭 |
 | `slowNetAdapt` | `true` | 慢网适配（D）；false=slow 档不降兴趣点并发/不放大 API 超时 |
+
+## 隐私与数据说明
+
+- 识别时图片以 **base64 直连 DeepSeek 官方视觉 API**（默认 `https://api.deepseek.com`），按官方账单计费；请勿上传敏感/隐私材料，或自行脱敏。
+- pipeline / smart 过程会在**系统临时目录**落盘明细（`precheck.json` / 区域 PNG / `ocr.txt` / `answer.md` 等），默认在系统临时目录；可用 `out_dir` 指定目录。
+- 插件提供**过期清理**：默认清理超过 **24 小时**的旧临时目录/区域图（仅限插件自己的前缀，不触碰用户指定 `out_dir`）。
 
 ## 四、成本参考（仅供了解，插件本身不计算）
 

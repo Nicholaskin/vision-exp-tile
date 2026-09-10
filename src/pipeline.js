@@ -24,6 +24,7 @@ import { ocrText, ocrPoolTimeoutMs } from './ocr-local.js';
 import { detectHandwrite } from './handwrite.js';
 import { previewImage, recognizeRegion } from './vision-client.js';
 import { buildPixelGrid } from './pixelgrid.js';
+import { cleanupOldTempArtifacts } from './temp-cleanup.js';
 
 /** 默认兴趣点区域识别提问（要求中文、结构化） */
 const REGION_QUESTION = '详细识别该区域的内容：文字、物体、图表、颜色布局等；有文字则逐字转录。';
@@ -86,6 +87,10 @@ export async function runPipeline(opts) {
     tempDir, signal, fetchImpl, timeoutMs = 300000,
     interestConcurrency, upgrade = 'default', preprocess = 'auto'
   } = opts;
+  // 过期临时文件清理（仅插件前缀；不触碰用户显式 tempDir）
+  try {
+    await cleanupOldTempArtifacts({ excludePaths: tempDir ? [tempDir] : [] });
+  } catch { /* 清理失败静默 */ }
   // OCR 函数可注入（单元测试用）；默认走本地 ocrText（paddle→rapid→windows 降级链）
   const ocrFn = typeof ocrOverride === 'function' ? ocrOverride : ocrText;
   // 兴趣点 API 并发度（参数 > 环境 > 默认 2）；文字区并发沿用 DSH_PIPELINE_CONCURRENCY

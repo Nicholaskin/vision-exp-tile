@@ -306,7 +306,7 @@ export function splitGroups(tiles, groupSize = 40) {
  * 运行完整识别流程（工具 2 的核心编排）：
  *  - 总块数 ≤ singleThreshold → 单请求"逐块识别 + 全局聚合"一体完成（快、省）
  *  - 否则 → 分层聚合：每组一请求输出带坐标的结构化 JSON，最后一次请求做全局聚合
- * 本流程只负责识别与聚合，不统计 token、不计算费用（按需求已移除该能力）。
+ * 本流程只负责识别与聚合，不代为统计/不显示 token 与费用（实际计费以 DeepSeek 官方 API 平台账单为准）。
  * @param {object} opts - {apiKey, baseURL, model, width, height, tiles, grid, question,
  *                         mode('auto'|'single'|'layered'), groupSize, maxTokens, detail,
  *                         json, fetchImpl, signal, timeoutMs}
