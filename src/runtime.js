@@ -37,7 +37,7 @@
  */
 
 import { normalizeConfig, DEFAULT_CONFIG } from './config.js';
-import { SETTINGS_FIELDS } from './settings-schema.js';
+import { SETTINGS_FIELDS } from './settings-fields.js';
 import { getCachedProbe, classifyTier, computeRecommendations, DEFAULT_RECOMMENDATIONS } from './device.js';
 
 /* ------------------------------------------------------------------ */

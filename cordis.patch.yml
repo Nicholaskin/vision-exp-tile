@@ -1,5 +1,0 @@
-# vision-exp-tile — bundle patch: inserts the vision-exp-tile plugin row.
-# 语义：让 dsh 的组合树在 bundles 列表中挂载本插件（与 picturereader 的 patch 同款机制）。
-- insert:
-    - id: vision-exp-tile
-      name: 'vision-exp-tile'

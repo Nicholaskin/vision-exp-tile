@@ -7,12 +7,14 @@
  *   - vision_tile_recognize 切图后直连 DeepSeek 视觉 API 识别并聚合，输出结构化答案（不代为统计/不显示 token 与费用，实际计费以 DeepSeek 官方 API 平台账单为准）
  *
  * 形态：裸工具对象 + ctx.tools.register（不引入 defineTool，保持与官方工具一致的注册方式）。
- * 不引入新依赖，仅使用 node:path / node:fs/promises 与既有 src 模块。
+ * 仅使用 node:path / node:fs/promises / node:os / node:crypto 与既有 src 模块
+ * （不 import 任何 @deepseek-ai/* 宿主包）。
  *
- * v0.3.0：新增「图像识别」设置命名空间（NS='vision-exp-tile'），在 DSH Web 设置页
- * 注册配置分区，配置以 settings.yaml 持久化、运行时热生效；工具执行时经
- * getRuntimeConfig() 惰性读最新设置（优先级：工具参数 > 设置页 > 默认值），
- * OCR 引擎/池等参数经 applySettingsEnv() 写入 process.env 于下次工具调用生效。
+ * v0.3.0：配置经宿主设置命名空间持久化（settings.yaml）。
+ * v0.5.0（生态化改造）：设置改为独立 JSON 文件（~/.dsh/vision-exp-tile.json，
+ * 见 settings-file.js），首次自动迁移旧 settings.yaml 分区；工具执行时经
+ * getRuntimeConfig() 惰性读最新设置（优先级：工具参数 > 设置文件 > 默认值），
+ * OCR 引擎/池等参数经 envFromSettings() 同步到 process.env 于下次工具调用生效。
  *
  * @module vision-exp-tile
  */
@@ -26,20 +28,16 @@ import { buildSplitResultText } from './prompts.js';
 import { recognize, previewImage, recognizeRegion } from './vision-client.js';
 import { runPipeline } from './pipeline.js';
 import { cleanupOldTempArtifacts } from './temp-cleanup.js';
-import { NS, normalizeConfig } from './config.js';
-import { settingsNamespace } from '@deepseek-ai/dsh-settings';
-import z from '@deepseek-ai/schemastery';
-import { SettingsSchema, toSettingsBase } from './settings-schema.js';
-import { setRuntimeSource, getRuntimeConfig, applySettingsEnv, normalizeFromSettings } from './runtime.js';
+import { normalizeConfig } from './config.js';
+import { setRuntimeSource, getRuntimeConfig } from './runtime.js';
 import { probeDevice, deviceProfileText } from './device.js';
 import { isPicturereaderPresent, withCollabIfPresent } from './picturereader-detector.js';
 import { readPeerSettings, applyPeerDefaults } from './peer-config.js';
+import { initFileSettings, syncSettingEnv, setSetting, readSnapshot } from './settings-file.js';
+import { openImageSource, outDirBase } from './host-io.js';
 
-/** 插件名（供 DSH 加载器识别）。 */
+/** 插件名（兼容旧 Cordis 装载场景；标准装载不读取）。 */
 export const name = 'vision-exp-tile';
-
-/** 运行时需要的服务注入。 */
-export const inject = ['tools', 'fs'];
 
 /** 单张图片文件读取字节上限（512 MiB，大图足够）。 */
 const IMAGE_BYTE_CAP = 512 * 1024 * 1024;
@@ -205,18 +203,19 @@ function readSplitParams(args, cfg, tool) {
 
 /**
  * 解析输出目录：
- *  - 非空 out_dir（显式）：相对路径基于 cwd 解析，绝对路径原样使用；
+ *  - 非空 out_dir（显式）：相对路径基于「源图所在目录」解析（v0.5.0 语义；
+ *    旧版基于会话 cwd——标准插件协议不提供 cwd，且源图目录更符合直觉），
+ *    绝对路径原样使用；
  *  - 否则：原图同目录下 `<原图名>_tiles` 子目录。
  * @param {unknown} rawOutDir - 参数 out_dir。
- * @param {string|undefined} cwd - 会话工作目录。
- * @param {string} hostPath - 原图宿主绝对路径（processPath 结果）。
+ * @param {string} hostPath - 原图宿主绝对路径（openImageSource 的 hostPath）。
  * @param {string} base - 原图文件名（不含扩展名）。
  * @returns {string} 输出目录绝对路径。
  */
-function resolveOutDir(rawOutDir, cwd, hostPath, base) {
+function resolveOutDir(rawOutDir, hostPath, base) {
   const p = String(rawOutDir ?? '').trim();
   if (p.length > 0) {
-    return pathResolve(cwd ?? process.cwd(), p);
+    return pathResolve(outDirBase(hostPath), p);
   }
   return join(dirname(hostPath), `${base}_tiles`);
 }
@@ -264,42 +263,33 @@ async function writeTilesAndOverview(outDir, base, format, r, withOverview) {
 
 /**
  * 读取目标图片文件并完成切分（两个工具共用的前置流程）。
- * 负责：路径解析、按 cwd 定位、stat 校验、读取字节、调用 splitImage、计算宿主路径与原图 base 名。
- * @param {object} ctx - Cordis 上下文（提供 ctx.fs）。
- * @param {object} exec - 工具执行上下文（提供 exec.signal / exec.agent）。
+ * 负责：路径解析、读图（host-io：绝对路径直读 / 相对路径委托宿主会话 cwd）、
+ * 统计校验、调用 splitImage、计算宿主绝对路径与原图 base 名。
+ * @param {object} ctx - 兼容视图（仅 debugLog 用 ctx.logger）。
+ * @param {object} exec - 工具执行上下文（提供 exec.signal）。
  * @param {object} args - 工具参数。
  * @param {object} cfg - 归一化后的配置。
  * @param {string} tool - 工具名。
- * @returns {Promise<object>} 包含 filePath/ext/target/hostPath/base/width/height/r/切分参数/cwd/bytes。
+ * @returns {Promise<object>} 包含 filePath/ext/target/hostPath/base/width/height/r/切分参数/bytes。
  */
 async function loadImageAndSplit(ctx, exec, args, cfg, tool) {
   // 1. 路径参数。
   const filePath = String(args.file_path ?? '').trim();
   if (filePath.length === 0) throw new Error(`${tool}: file_path 必须是非空字符串`);
-  const ext = extname(filePath).toLowerCase();
 
-  // 2. 用 ctx.fs 解析目标（相对路径基于会话 cwd），并校验存在性/类型。
-  const cwd = exec.agent?.session?.header?.cwd;
-  const target = await ctx.fs.resolve(filePath, {
-    ...(cwd !== undefined ? { cwd } : {}),
-    signal: exec.signal
-  });
-  const info = await ctx.fs.stat(target, exec.signal);
-  if (!info) throw new Error(`${tool}: 无法读取"${target.displayPath}"：文件不存在`);
-  if (info.type !== 'file') throw new Error(`${tool}: 无法读取"${target.displayPath}"：不是普通文件`);
+  // 2. 用 host-io 读图（替代旧 ctx.fs）：绝对路径 node:fs 直读；
+  //    相对路径优先委托标准执行环境的 readWorkspaceFile（宿主按会话 cwd 解析 + fs/observed）。
+  //    openImageSource 内部完成存在性/类型/字节上限校验并抛友好中文错误。
+  const src = await openImageSource(filePath, { maxBytes: IMAGE_BYTE_CAP, signal: exec.signal });
+  const ext = src.ext;
+  // 兼容下游的 target.displayPath 引用（宿主显示路径）。
+  const target = { displayPath: src.displayPath };
 
-  // 3. 读取原始字节（512 MiB 上限）。
-  const bytes = await ctx.fs.readBytes(target, exec.signal, IMAGE_BYTE_CAP);
-  // 标记源文件已被观察（供文件观察策略追踪；失败不影响功能）。
-  try {
-    ctx.emit('fs/observed', target, { kind: 'present', version: info.version }, exec);
-  } catch {}
-
-  // 4. 读切分参数并执行切图。
+  // 3. 读切分参数并执行切图。
   const params = readSplitParams(args, cfg, tool);
   let r;
   try {
-    r = await splitImage(Buffer.from(bytes), ext, {
+    r = await splitImage(Buffer.from(src.bytes), ext, {
       blockSize: params.blockSize,
       overlap: params.overlap,
       threshold: params.cutThreshold,
@@ -316,8 +306,8 @@ async function loadImageAndSplit(ctx, exec, args, cfg, tool) {
     throw err;
   }
 
-  // 5. 宿主可用绝对路径（用于定位输出目录）与原图文件名（不含扩展名）。
-  const hostPath = ctx.fs.processPath(target);
+  // 4. 宿主可用绝对路径（用于定位输出目录）与原图文件名（不含扩展名）。
+  const hostPath = src.hostPath;
   const base = basename(hostPath, extname(hostPath));
 
   return {
@@ -326,11 +316,10 @@ async function loadImageAndSplit(ctx, exec, args, cfg, tool) {
     target,
     hostPath,
     base,
-    cwd,
     width: r.width,
     height: r.height,
     r,
-    bytes,
+    bytes: src.bytes,
     blockSize: params.blockSize,
     overlap: params.overlap,
     cutThreshold: params.cutThreshold,
@@ -456,7 +445,7 @@ export function createSplitTool(ctx, cfg) {
       }
 
       // 计算输出目录并落盘切块 + overview。
-      const outDir = resolveOutDir(args.out_dir, img.cwd, img.hostPath, img.base);
+      const outDir = resolveOutDir(args.out_dir, img.hostPath, img.base);
       const written = await writeTilesAndOverview(outDir, img.base, img.format, r, cfg.withOverview);
       const result = {
         path: img.target.displayPath,
@@ -773,7 +762,7 @@ export function createRecognizeTool(ctx, cfg) {
       if (r.splits === true) {
         const rawOutDir = String(args.out_dir ?? '').trim();
         if (rawOutDir.length > 0) {
-          outDir = pathResolve(img.cwd ?? process.cwd(), rawOutDir);
+          outDir = pathResolve(outDirBase(img.hostPath), rawOutDir);
           const written = await writeTilesAndOverview(outDir, img.base, img.format, r, withOverview);
           // 切块顺序与 outputTiles 一致，可按下标补 file 路径。
           for (let i = 0; i < outputTiles.length; i += 1) {
@@ -802,21 +791,15 @@ export function createRecognizeTool(ctx, cfg) {
 /* ------------------------------------------------------------------ */
 
 /**
- * 轻量读图（仅 resolve/stat/readBytes，不做网格切分——用于区域裁剪等按需场景）。
- * @returns {Promise<{bytes:Buffer, ext:string, cwd:string|undefined, displayPath:string, hostPath:string}>}
+ * 轻量读图（仅读字节，不做网格切分——用于区域裁剪等按需场景）。
+ * 语义与 loadImageAndSplit 的读图段一致（host-io：绝对直读 / 相对委托宿主会话 cwd）。
+ * @returns {Promise<{bytes:Buffer, ext:string, displayPath:string, hostPath:string}>}
  */
 async function loadImageBytes(ctx, exec, args, tool) {
   const filePath = String(args.file_path ?? '').trim();
   if (filePath.length === 0) throw new Error(`${tool}: file_path 必须是非空字符串`);
-  const ext = extname(filePath).toLowerCase();
-  const cwd = exec.agent?.session?.header?.cwd;
-  const target = await ctx.fs.resolve(filePath, { ...(cwd !== undefined ? { cwd } : {}), signal: exec.signal });
-  const info = await ctx.fs.stat(target, exec.signal);
-  if (!info) throw new Error(`${tool}: 无法读取"${target.displayPath}"：文件不存在`);
-  if (info.type !== 'file') throw new Error(`${tool}: 无法读取"${target.displayPath}"：不是普通文件`);
-  const bytes = await ctx.fs.readBytes(target, exec.signal, IMAGE_BYTE_CAP);
-  try { ctx.emit('fs/observed', target, { kind: 'present', version: info.version }, exec); } catch {}
-  return { bytes: Buffer.from(bytes), ext, cwd, displayPath: target.displayPath, hostPath: ctx.fs.processPath(target) };
+  const src = await openImageSource(filePath, { maxBytes: IMAGE_BYTE_CAP, signal: exec.signal });
+  return { bytes: src.bytes, ext: src.ext, displayPath: src.displayPath, hostPath: src.hostPath };
 }
 
 /**
@@ -907,7 +890,7 @@ export function createRegionCropTool(ctx, cfg) {
       // 落盘：显式 out_dir 或系统临时目录
       const outDirRaw = String(args.out_dir ?? '').trim();
       const outDir = outDirRaw.length > 0
-        ? pathResolve(img.cwd ?? process.cwd(), outDirRaw)
+        ? pathResolve(outDirBase(img.hostPath), outDirRaw)
         : tmpdir();
         // 过期临时文件清理（仅插件前缀；不触碰用户指定 out_dir）
         try {
@@ -1034,51 +1017,38 @@ export function apply(ctx, configRaw) {
     };
   });
 
-  // ── v0.3.0：注册「图像识别」设置命名空间 + 订阅热更 ──
+  // ── v0.5.0：设置文件化（替代旧宿主 settings 命名空间注册）──
+  // 设置持久化到 <DSH_HOME 或 ~/.dsh>/vision-exp-tile.json（settings-file.js）；
+  // 首次初始化自动迁移旧 settings.yaml 的 vision-exp-tile 分区；读取惰性
+  // （mtime 缓存 + 文件变化即热生效），不再依赖宿主 dsh-settings 服务。
   try {
-    ctx.inject(['settings'], (sctx) => {
-      // base 用 toSettingsBase(configRaw)：把 configRaw 的 camelCase 键转成
-      // snake_case，作为第 2 层（低于用户设置页、高于 schema 默认）参与解析，
-      // 避免 schema 默认值遮蔽 configRaw 里用户显式写的 baseURL 等。
-      const scope = sctx.settings.register(
-        settingsNamespace(NS),
-        SettingsSchema,
-        { base: toSettingsBase(configRaw) }
-      );
-      // 读取时实时归一化（scope.get() 已含 schema默认 + configRaw base + 用户设置）。
-      sourceGetter = () => applyPeerDefaults(normalizeFromSettings(scope.get()), peer);
-      // 首次应用一次设置页的环境变量映射（OCR 引擎/池等）。
-      applySettingsEnv(scope.get());
-      // v0.4.1 扩展：异步设备探测完成后，按 auto 档位重新应用 env（slow/省电/平台降级/
-      //   慢网等推荐统一合并后落地），并回写只读设备画像（device_profile）。
-      //   探测含 GPU spawn/电源/微基准（≤1.5s，并行），故 fire-and-forget，不阻塞插件启动；
-      //   device_benchmark / device_power_probe 设置开关控制是否跑对应探测。
-      const probeOpts = {
-        runBenchmark: scope.get().device_benchmark !== false,
-        runPowerProbe: scope.get().device_power_probe !== false
-      };
-      probeDevice(null, probeOpts).then((probe) => {
-        try {
-          applySettingsEnv(scope.get());
-          const text = deviceProfileText(probe);
-          // 仅在差异时回写，避免每次启动都覆盖 settings.yaml（幂等）。
-          if (typeof scope.set === 'function' && String(scope.get().device_profile ?? '') !== text) {
-            scope.set('device_profile', text);
-          }
-        } catch (error) {
-          ctx.logger?.warn?.(`[vision-exp-tile] 应用设备档位 env 失败：${String(error)}`);
+    // initFileSettings 返回 sourceGetter（文件快照 → normalizeFromSettings → peer 覆盖），
+    // 内部已完成：旧分区一次性迁移 + 初始 env 同步（applySettingsEnv）。
+    sourceGetter = initFileSettings({ peer });
+
+    // v0.4.1 扩展延续：异步设备探测完成后，按 auto 档位重新应用 env
+    // （slow/省电/平台降级/慢网等推荐统一合并后落地），并幂等回写只读设备画像。
+    // device_benchmark / device_power_probe 开关从文件快照读取（缺失 = undefined → 跑）。
+    const snapshot0 = readSnapshot();
+    const probeOpts = {
+      runBenchmark: snapshot0.device_benchmark !== false,
+      runPowerProbe: snapshot0.device_power_probe !== false
+    };
+    probeDevice(null, probeOpts).then((probe) => {
+      try {
+        syncSettingEnv(); // 强制重读文件快照并重新应用 env（设备档位推荐落地）
+        const text = deviceProfileText(probe);
+        // 仅在差异时回写，避免每次启动都覆盖配置文件（幂等）。
+        if (String(readSnapshot().device_profile ?? '') !== text) {
+          setSetting('device_profile', text);
         }
-      });
-      // 订阅变化：设置更新时重新应用 env（进程池参数在下次工具调用生效）。
-      scope.watch(() => {
-        try {
-          applySettingsEnv(scope.get());
-        } catch (error) {
-          ctx.logger?.warn?.(`[vision-exp-tile] 应用设置 env 失败：${String(error)}`);
-        }
-      });
+      } catch (error) {
+        ctx.logger?.warn?.(`[vision-exp-tile] 应用设备档位 env 失败：${String(error)}`);
+      }
     });
+    // 热生效机制：getRuntimeConfig() 每次读取都调 sourceGetter → readSnapshot()，
+    // 文件 mtime 变化时顺带同步一次 env —— 与旧 scope.watch 行为等价，无需额外订阅。
   } catch (error) {
-    ctx.logger?.warn?.(`[vision-exp-tile] settings 注册失败：${String(error)}`);
+    ctx.logger?.warn?.(`[vision-exp-tile] settings 文件化初始化失败：${String(error)}`);
   }
 }

@@ -1,7 +1,36 @@
 # 更新日志（Release Changelog）
 
-> 全部版本记录（v0.1.0 → v0.4.3），最新在上；本文件 = GitHub Release 的 changelog 栏（由 .github/workflows/release.yml 自动读取）。
+> 全部版本记录（v0.1.0 → v0.5.0-rc.1），最新在上；本文件 = GitHub Release 的 changelog 栏（由 .github/workflows/release.yml 自动读取）。
 > 注：README 只展示最新一期更新内容（使用者视角）；本文件保留每期完整记录（含历史）。
+
+## v0.5.0-rc.1（生态化改造 · 阶段一）
+
+**背景与目标**
+
+插件在 DSH 0.1.7-rc.2 上失效的根因：宿主只装载 `profile.package.json` 的 `dsh.bundle.bundles[]` 白名单成员，而 vision-exp-tile 不在其中（旧装载形态 = Cordis bundle + `cordis.patch.yml`，已随宿主换代失效）。本次不修单点兼容，而是按用户选定的路线**加入 dsh-std 协议生态**（github.com/T-Auto/dsh-ecosystem-spec）：把插件改造成 dsh-std 标准组件，由宿主侧 `@dsh-std/adapter-dsh` 发现、校验、装载——标准插件不再需要 `dsh.bundle` / `dsh.client` / `cordis.patch.yml`，也不 import 任何 `@deepseek-ai/*` 宿主包。
+
+### 新功能与改动
+
+1. **标准组件化**：新增 `dsh-plugin.json`（manifest v0.15：`facets.host{entry, apiVersion}` + `contributes["x-tools"]` 声明 3 个 `tools.dsh/v1alpha1` Tool 资源）与 `std-facet.js`（`defineFacet` 标准 Host Facet 入口：激活时经 `context.extensions.publish` 发布工具的 ToolHandler，adapter 自动映射进 DSH 原生工具目录）。
+2. **设置文件化**：新增 `src/settings-file.js` —— 设置持久化到 `<DSH_HOME 或 ~/.dsh>/vision-exp-tile.json`，脱离宿主 dsh-settings 服务；**首次自动迁移**旧 settings.yaml 的 `vision-exp-tile:` 分区（纯文本行解析，不引 YAML 依赖）；mtime 热生效 + 原子写回（tmp+rename）；`device_profile` 设备画像回写改走配置文件。
+3. **文件访问抽象**：新增 `src/host-io.js` —— 替代旧 `ctx.fs`：绝对路径 node:fs 直读；相对路径优先委托标准执行环境的 `readWorkspaceFile`（宿主按会话 cwd 解析 + fs/observed 观察），无宿主环境时 process.cwd() 兜底。
+4. **out_dir 相对语义变更**：显式相对 `out_dir` 的基准从「会话 cwd」改为「**源图所在目录**」（标准协议不提供 cwd；源图目录跨宿主稳定、更符合直觉）。
+5. **依赖与元数据**：`package.json` 移除 `dsh.bundle` / `dsh.client` / `@deepseek-ai/*` peerDependencies / `cordis.patch.yml`；新增 `@dsh-std/sdk`、`@dsh-std/tool` 运行时依赖、`@dsh-std/manifest` devDep；`main`/`exports` 指向 `std-facet.js`。
+6. **运行时链路洁净**：`SETTINGS_FIELDS` 从 `settings-schema.js` 拆出到 `src/settings-fields.js`（纯数据、零依赖），`runtime.js` 改从其导入——标准装载链（std-facet → src/*）不再连带加载 `@deepseek-ai/schemastery`。
+7. **测试**：新增 `tests/host-io.test.js`（9 项：绝对直读/相对委托/cwd 兜底/超限/不存在/错误透传/空路径/已取消）、`tests/settings-file.test.js`（11 项：YAML 分区解析/读写回/原子落盘/损坏容错/迁移/幂等/peer 优先级）、`scripts/std-facet-smoke.mjs`（15 项冒烟：FacetModule 激活→发布 3 工具→定义形状→真实小图执行 →manifest 经 `@dsh-std/manifest parseManifest` 正式校验→scope 清理→运行时链路零宿主 import）。`npm test` **183/183** 全绿。
+
+### 行为变化（使用者视角）
+
+- **设置入口**：DSH Web 设置页不再提供本插件配置分区（client.js 设置页于阶段二以标准 SettingsSection 回归）→ 改为直接编辑 `~/.dsh/vision-exp-tile.json`（枚举/数值/布尔直接写 JSON；OCR 引擎/池等的 env 覆盖机制保留不变）。
+- **相对 `out_dir`**：基准改为源图目录（见上）。
+- **picturereader 分工引导**：标准环境下 `ctx.tools` 无目录客户端，共存探测降级为「不在场」（工具描述保持基线）；阶段二经协议目录查询恢复。
+- **宿主要求**：需宿主安装并装载 `@dsh-std/adapter-dsh`（bundles 白名单 + adapter 自身 patch），vision-exp-tile 作为普通依赖——**装配步骤以实测回填为准**。
+
+### 验证
+
+- `npm test`：**183/183** 全绿（原 168 + host-io 9 + settings-file 11 - 5 项重组合并）；
+- `npm run smoke`：**15/15** 全过（含 parseManifest 校验与工具名-发布名一致性）；
+- 本版为「生态化改造首阶段」：**未 push、未打 tag、未发布**——宿主装配（adapter-dsh 装载 + 0.1.7 运行时实测）与阶段二（功能与架构升级）待续。
 
 ## v0.4.3（2026-08-30）
 

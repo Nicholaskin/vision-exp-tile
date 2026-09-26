@@ -6,12 +6,12 @@
 
 各位随意取用：有问题可以提交 **Issue**（如果能自己改的话就更好了——你提交了 Issue，我也只能给 DeepSeek 看然后让他自己改；我本人尝试过多次，均未学会任何写代码的能力，也是乘上 **AI** 的东风，让我有了开发插件的能力）。
 
-> **本次更新（v0.4.3）完全由 DeepSeek Harness 自主完成**，内容：
-> ① **修复 package.json 仓库元数据占位符**：`repository` / `homepage` / `bugs` 由占位作者/仓库地址改为实际仓库地址 `Nicholaskin/vision-exp-tile`，避免 npm 安装提示警告。
-> ② **计费表述诚实化**：README、工具描述、脚本注释统一为「不代为统计/不显示 token 与费用，实际以 DeepSeek 官方 API 平台账单为准」，替换容易误读的「不统计 token / 不计算费用」。
-> ③ **新增「隐私与数据说明」**：图片直连官方云 API、按官方账单计费；过程明细落盘系统临时目录；插件默认清理超过 24 小时的旧临时目录/区域图（仅插件自身前缀，不触碰用户显式指定 out_dir）。
-> ④ **过期清理模块**：新增 `src/temp-cleanup.js`（过期临时产物清理，仅插件前缀、ttl 默认 24h、可注入 now/ttlMs 便于测试、异常容错），并在 pipeline / region_crop 结束时调用。
-> ⑤ **测试**：新增 `tests/temp-cleanup.test.js`（5 项），`npm test` **168/168** 全绿。
+> **本次更新（v0.5.0-rc.1）· 生态化改造（阶段一）**，内容：
+> ① **加入 dsh-std 协议生态**（dsh-ecosystem-spec）：新增 `dsh-plugin.json`（manifest v0.15）+ `std-facet.js`（标准 Host Facet），三个工具经 `tools.dsh/v1alpha1` 协议发布为 Tool 资源，由宿主侧 `@dsh-std/adapter-dsh` 装载——**不再依赖 Cordis bundle / `cordis.patch.yml` / 任何 `@deepseek-ai/*` 宿主包**。
+> ② **设置文件化**：设置从宿主 settings 服务迁至独立配置文件 `~/.dsh/vision-exp-tile.json`（首次自动迁移旧 settings.yaml 分区；热生效；环境变量覆盖保留）。
+> ③ **相对 `out_dir` 基准变更**：显式相对输出目录基准 = 「源图所在目录」（旧：会话 cwd）。
+> ④ **测试**：新增 host-io / settings-file 单测与标准 facet 冒烟（含 manifest 正式校验），`npm test` **183/183** 全绿。
+> > ⚠ 装配说明（adapter-dsh 装载 + 重启验证）以宿主实测回填为准，见下文「安装与挂载」。
 
 # vision-exp-tile ◆ 为 deepseek-v4-flash-vision-exp 定制的大图智能识图插件
 
@@ -19,7 +19,7 @@
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org)
-[![version](https://img.shields.io/badge/vision--exp--tile-v0.4.3-orange.svg)](#)
+[![version](https://img.shields.io/badge/vision--exp--tile-v0.5.0--rc.1-orange.svg)](#)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-plugin-purple.svg)](#)
 
 > 独立 DSH 插件：**零依赖任何第三方 DSH 插件**（picturereader 等均未使用，仅用纯官方 DSH 服务 + 可选开源 OCR 环境）。把大图切成 **800×800 无损小块**（官方缩放规则的"甜蜜点"：块在模型侧**不被降采样**、每块**≤384 token**），携带**坐标标注 + 分块聚合逻辑**直接调用 DeepSeek 视觉 API 完成识别与聚合，返回结构化答案（**不代为统计/不显示 token 与费用，实际计费以 DeepSeek 官方 API 平台账单为准**）。
@@ -39,24 +39,26 @@
 
 ## 二、安装与挂载
 
+**v0.5.0 起为标准 dsh-std 组件**（不再走 Cordis bundle / `cordis.patch.yml`）：由宿主侧 `@dsh-std/adapter-dsh` 发现并装载 `dsh-plugin.json`，工具经 `tools.dsh/v1alpha1` 协议映射进宿主工具目录。
+
 ```powershell
-# 1. 复制/链接插件到 DSH 插件目录（与 picturereader 同款形态）
-#    安装方式 = link 依赖安装到插件目录：把插件源码放到 DSH 插件目录，再在目标 profile 以 link: 依赖挂载
+# 1. 复制/链接插件源码到 DSH 插件目录（依赖以 link: 挂载到目标 profile）
+#    ~/.dsh/plugins/vision-exp-tile          ← 插件源码（含 dsh-plugin.json / std-facet.js）
 
-# 2. 在目标 profile 的 package.json 中：
-#    "dsh": { "profile": { "bundles": [ ..., "vision-exp-tile" ] } }
-#    "dependencies": { "vision-exp-tile": "link:C:/Users/HP/.dsh/plugins/vision-exp-tile" }
+# 2. 目标 profile ~/.dsh/profiles/<name>/package.json：
+#    "dependencies": { "vision-exp-tile": "link:C:/Users/<你>/.dsh/plugins/vision-exp-tile" }
 
-# 3. 在 profile 目录运行（建立 node_modules 链接）
-#    pnpm install
+# 3. 宿主需带 dsh-std 适配层（bundles 白名单 + adapter 自身 patch 装载 @dsh-std/adapter-dsh）
 
-# 4. 重启 DSH 生效
+# 4. pnpm install + 重启 DSH 生效
 ```
+
+> ⚠ **装配实测回填中**：`@dsh-std/adapter-dsh` 在宿主 0.1.7-rc.2 上的装载细节（bundles 项、patch 插入、会话服务兼容性）本轮正在验证，步骤 3 的准确写法见验证结果；阶段一代码侧已全量通过单测与冒烟（`npm test` + `npm run smoke`）。
 
 **隔离测试**（推荐）：不要直接改正式 web profile，新建测试 profile：
 
 ```powershell
-# 测试 profile：~/.dsh/profiles/vision-test（bundles = dsh-base + dsh-web-app + vision-exp-tile）
+# 测试 profile：~/.dsh/profiles/vision-test
 dsh --profile vision-test --port 3081
 # 浏览器打开 http://127.0.0.1:3081 即可测试；正式 profile 与本次改动零关联。
 ```
