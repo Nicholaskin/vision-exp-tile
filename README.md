@@ -11,7 +11,7 @@
 > ② **设置文件化**：设置从宿主 settings 服务迁至独立配置文件 `~/.dsh/vision-exp-tile.json`（首次自动迁移旧 settings.yaml 分区；热生效；环境变量覆盖保留）。
 > ③ **相对 `out_dir` 基准变更**：显式相对输出目录基准 = 「源图所在目录」（旧：会话 cwd）。
 > ④ **测试**：新增 host-io / settings-file 单测与标准 facet 冒烟（含 manifest 正式校验），`npm test` **183/183** 全绿。
-> > ⚠ 装配说明（adapter-dsh 装载 + 重启验证）以宿主实测回填为准，见下文「安装与挂载」。
+> > ⚠ 装配实测结论（2026-10-07：受阻·待上游 adapter 适配 0.1.7）见下文「安装与挂载」。
 
 # vision-exp-tile ◆ 为 deepseek-v4-flash-vision-exp 定制的大图智能识图插件
 
@@ -51,6 +51,9 @@
 # 3. 宿主需带 dsh-std 适配层（bundles 白名单 + adapter 自身 patch 装载 @dsh-std/adapter-dsh）
 
 # 4. pnpm install + 重启 DSH 生效
+```
+
+> ⚠ **装配实测（2026-10-07，结论：受阻待上游）**：`@dsh-std/adapter-dsh` 在 npm registry 的全部版本（0.1.0-rc1 ~ 0.1.1-rc.3 共 6 版）peer 声明均为 `@deepseek-ai/* <0.1.6`，与宿主 0.1.7-rc.2 不匹配；宿主插件管理页热装时**严格校验 peer 且无忽略选项**（安装直接失败）。按红线不魔改 adapter/dsh-std/宿主本身，故**无法在当前宿主 0.1.7-rc.2 上合法完成本插件的标准装载**——等待上游 adapter 发布支持 0.1.7 的版本后，按上述步骤 3/4 回填实测并启用。插件本体（v0.5.0-rc.1 代码侧）已通过单测与冒烟。
 ```
 
 > ⚠ **装配实测回填中**：`@dsh-std/adapter-dsh` 在宿主 0.1.7-rc.2 上的装载细节（bundles 项、patch 插入、会话服务兼容性）本轮正在验证，步骤 3 的准确写法见验证结果；阶段一代码侧已全量通过单测与冒烟（`npm test` + `npm run smoke`）。

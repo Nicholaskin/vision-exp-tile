@@ -24,13 +24,13 @@
 - **设置入口**：DSH Web 设置页不再提供本插件配置分区（client.js 设置页于阶段二以标准 SettingsSection 回归）→ 改为直接编辑 `~/.dsh/vision-exp-tile.json`（枚举/数值/布尔直接写 JSON；OCR 引擎/池等的 env 覆盖机制保留不变）。
 - **相对 `out_dir`**：基准改为源图目录（见上）。
 - **picturereader 分工引导**：标准环境下 `ctx.tools` 无目录客户端，共存探测降级为「不在场」（工具描述保持基线）；阶段二经协议目录查询恢复。
-- **宿主要求**：需宿主安装并装载 `@dsh-std/adapter-dsh`（bundles 白名单 + adapter 自身 patch），vision-exp-tile 作为普通依赖——**装配步骤以实测回填为准**。
+- **宿主要求**：需宿主安装并装载 `@dsh-std/adapter-dsh`（bundles 白名单 + adapter 自身 patch），vision-exp-tile 作为普通依赖——**装配实测（2026-10-07）受阻**：registry 上 adapter 全部版本（0.1.0-rc1~0.1.1-rc.3）peer 均为 `@deepseek-ai/* <0.1.6`，与宿主 0.1.7-rc.2 不匹配，且宿主插件管理热装严格校验 peer、无忽略入口（安装失败）。按红线不魔改第三方 → **待上游 adapter 适配 0.1.7 后回填实测**。
 
 ### 验证
 
 - `npm test`：**183/183** 全绿（原 168 + host-io 9 + settings-file 11 - 5 项重组合并）；
 - `npm run smoke`：**15/15** 全过（含 parseManifest 校验与工具名-发布名一致性）；
-- 本版为「生态化改造首阶段」：**未 push、未打 tag、未发布**——宿主装配（adapter-dsh 装载 + 0.1.7 运行时实测）与阶段二（功能与架构升级）待续。
+- 本版为「生态化改造首阶段」：**未 push、未打 tag、未发布**——宿主装配**受阻**（adapter peer `<0.1.6` vs 宿主 0.1.7-rc.2，热装被拒；等上游适配），阶段二（功能与架构升级）不影响、待续。
 
 ## v0.4.3（2026-08-30）
 
