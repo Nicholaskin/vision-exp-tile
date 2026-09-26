@@ -1,0 +1,20 @@
+# 行尾统一策略（2026-09-26 定）
+# - 文本文件：提交/归档时统一为 LF（* text=auto），checkout 时按平台自动处理
+# - 二进制文件：显式声明，禁止任何行尾/编码转换
+# 背景：历史 blob 为 CRLF（Windows 提交带入），GitHub main zip 为 LF；
+# 本文件落地后经 `git add --renormalize` 一次性归一化，此后与生态仓库逐字节一致。
+
+* text=auto
+
+# --- 二进制显式声明 ---
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.zip binary
+*.whl binary
+*.pyc binary
+*.exe binary
+*.dll binary
