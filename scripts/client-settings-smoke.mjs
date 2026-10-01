@@ -140,7 +140,7 @@ const onlyUi = fieldKeys.filter((k) => !configKeys.includes(k));
 const onlyConfig = configKeys.filter((k) => !fieldKeys.includes(k));
 check('界面字段 ⊆ 配置字段', onlyUi.length === 0, `仅界面有：${onlyUi.join(', ')}`);
 check('配置字段 ⊆ 界面字段', onlyConfig.length === 0, `仅配置有：${onlyConfig.join(', ')}`);
-check('字段数一致（>=10）', fieldKeys.length === configKeys.length && fieldKeys.length >= 10, `UI ${fieldKeys.length} / Config ${configKeys.length}`);
+check('字段数一致（全量覆盖，>= 35 项）', fieldKeys.length === configKeys.length && fieldKeys.length >= 35, `UI ${fieldKeys.length} / Config ${configKeys.length}`);
 
 /* ---------- 6. 保存路径已接线 ---------- */
 check('保存路径调用 form.set 与 form.unset', /await form\.set\(/.test(src) && /await form\.unset\(/.test(src));

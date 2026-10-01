@@ -83,7 +83,7 @@ test('client.js 自绘控件（不依赖 UI 包组件）：注入样式 + 原生
 
 test('client.js 的字段键全部是 snake_case（与配置文件 / Config 一致）', () => {
   const keys = [...src.matchAll(/\{\s*key:\s*'([a-z0-9_]+)'/g)].map((m) => m[1]);
-  assert.ok(keys.length >= 10, `字段数应 >= 10，实际 ${keys.length}`);
+  assert.ok(keys.length >= 35, `字段数应 >= 35（全量覆盖），实际 ${keys.length}`);
   for (const key of keys) {
     assert.match(key, /^[a-z][a-z0-9_]*$/, `字段键应为 snake_case：${key}`);
   }

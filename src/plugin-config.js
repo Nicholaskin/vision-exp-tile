@@ -33,6 +33,7 @@ import z from '@deepseek-ai/schemastery';
  *   未填写（undefined）= 沿用配置文件/环境变量/内置默认。
  */
 export const Config = z.object({
+  // ── 一、识别与接口 ───────────────────────────────────────────────
   /** 视觉 API 基地址（留空 = 用内置默认 https://api.deepseek.com）。 */
   base_url: z.string().volatile(),
   /** 读取 API key 的环境变量名（默认 DEEPSEEK_API_KEY）。 */
@@ -41,22 +42,82 @@ export const Config = z.object({
   model: z.string().volatile(),
   /** 单次视觉识别输出 token 上限。 */
   max_tokens: z.number().volatile(),
+  /** 请求超时（毫秒）。 */
+  timeout_ms: z.number().volatile(),
+  /** pipeline 本地 OCR 引擎：auto / windows / paddle / rapid / gpu。 */
+  ocr_engine: z.string().volatile(),
+  /** 图片预处理：auto / off / auto-enlarge-off。 */
+  preprocess: z.string().volatile(),
+  /** 手写路由：smart / visual / local / off。 */
+  handwrite_route: z.string().volatile(),
+  /** 低置信度升级策略：full / low / off。 */
+  upgrade: z.string().volatile(),
+
+  // ── 二、切块与输出 ───────────────────────────────────────────────
   /** 切块边长（像素，官方缩放甜蜜点 800）。 */
   block_size: z.number().volatile(),
   /** 长边超过此值才切块。 */
   cut_threshold: z.number().volatile(),
   /** 相邻块交叠像素（推荐 64，防跨块切断）。 */
   overlap: z.number().volatile(),
+  /** 分层聚合分组大小。 */
+  group_size: z.number().volatile(),
   /** 块格式：png（无损）/ jpeg（省体积）。 */
   format: z.string().volatile(),
   /** jpeg 质量（40..100，仅 format=jpeg 有效）。 */
   quality: z.number().volatile(),
   /** 是否输出网格布局参考图（overview）。 */
   with_overview: z.boolean().volatile(),
-  /** pipeline 模式的本地 OCR 引擎：auto / paddle / rapid / windows。 */
-  ocr_engine: z.string().volatile(),
   /** 输出目录（绝对路径，或相对源图目录的相对路径）。 */
-  out_dir: z.string().volatile()
+  out_dir: z.string().volatile(),
+  /** 旋转角度：0 / 90 / 180 / 270。 */
+  rotate: z.number().volatile(),
+  /** 请求编排模式：auto / single / layered。 */
+  mode: z.string().volatile(),
+  /** 是否以 JSON 结构化返回（仅 full 模式有效）。 */
+  json: z.boolean().volatile(),
+
+  // ── 三、性能与 OCR 池 ────────────────────────────────────────────
+  /** 兴趣点识别 API 并行数（1..4）。 */
+  interest_concurrency: z.number().volatile(),
+  /** 本地 OCR 进程池大小。 */
+  ocr_pool: z.number().volatile(),
+  /** 是否启用 OCR 结果缓存。 */
+  ocr_cache: z.boolean().volatile(),
+  /** 是否启用 OCR 前预处理。 */
+  ocr_preproc: z.boolean().volatile(),
+  /** OCR 池单请求超时（毫秒）。 */
+  ocr_pool_timeout_ms: z.number().volatile(),
+  /** 性能档位：auto / fast / normal / slow。 */
+  performance_tier: z.string().volatile(),
+
+  // ── 四、GPU 加速（按需开启，默认自动回退）────────────────────────
+  /** GPU 提供者：auto / cuda / dml / openvino / off。 */
+  gpu_provider: z.string().volatile(),
+  /** GPU 版 venv 的 python 路径（留空 = 内置约定）。 */
+  gpu_python: z.string().volatile(),
+  /** GPU 设备选择（留空 = 自动）。 */
+  gpu_device: z.string().volatile(),
+  /** GPU 失败时回退 CPU。 */
+  gpu_fallback: z.boolean().volatile(),
+
+  // ── 五、设备适配 ─────────────────────────────────────────────────
+  /** 启动时跑设备基准测试（影响档位推荐）。 */
+  device_benchmark: z.boolean().volatile(),
+  /** 启动时探测电源（电池/交流，影响档位推荐）。 */
+  device_power_probe: z.boolean().volatile(),
+  /** 平台降级策略：auto / on / off。 */
+  platform_fallback: z.string().volatile(),
+  /** 慢网自适应。 */
+  slow_net_adapt: z.boolean().volatile(),
+
+  // ── 六、调试与测试 ───────────────────────────────────────────────
+  /** 调试日志。 */
+  debug: z.boolean().volatile(),
+  /** 测试超时倍率（自检脚本用）。 */
+  test_timeout_factor: z.number().volatile(),
+  /** 测试跳过时序敏感断言。 */
+  test_skip_timing: z.boolean().volatile()
 });
 
 /**

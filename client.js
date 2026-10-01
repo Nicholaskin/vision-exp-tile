@@ -28,36 +28,122 @@ window.__ModuleLoader__.load({
     const ENTRY_ID = 'vision-exp-tile';
 
     /**
-     * 字段表：与 src/plugin-config.js 的 Config（volatile 字段）一一对应。
-     * type 决定控件：text / number / boolean / select。
+     * 字段表：与 src/plugin-config.js 的 Config（volatile 字段）**一一对应**
+     * （数量与键名不一致会被 scripts/client-settings-smoke.mjs 的双向一致性断言拦下）。
+     *
+     * type 决定控件：text / number / boolean / select；
+     * numeric 表示该 select 的值要按数字提交（如 rotate 的 0/90/180/270）；
+     * group 决定分组（见 GROUPS）。
      */
+    const GROUPS = [
+      { id: 'core', title: '识别与接口' },
+      { id: 'tile', title: '切块与输出' },
+      { id: 'perf', title: '性能与 OCR 池' },
+      { id: 'gpu', title: 'GPU 加速' },
+      { id: 'device', title: '设备适配' },
+      { id: 'debug', title: '调试与测试' }
+    ];
+
+    /** 选项简写：第一项恒为「（默认）」= 未设置（回落配置文件/内置默认）。 */
+    const opt = (value, label) => ({ value, label });
+    const dft = (label) => ({ value: '', label: label || '（默认）' });
+
     const FIELDS = [
-      { key: 'base_url', type: 'text', label: '视觉 API 地址', hint: '留空 = 使用内置默认（https://api.deepseek.com）' },
-      { key: 'api_key_env', type: 'text', label: '密钥环境变量名', hint: '默认 DEEPSEEK_API_KEY；留空 = 用默认' },
-      { key: 'model', type: 'text', label: '视觉模型', hint: '留空 = 使用内置默认模型' },
-      { key: 'max_tokens', type: 'number', label: '输出 token 上限', hint: '单次识别返回的最大 token 数' },
-      { key: 'block_size', type: 'number', label: '切块边长（像素）', hint: '官方缩放甜蜜点为 800' },
-      { key: 'cut_threshold', type: 'number', label: '切块阈值（长边）', hint: '长边超过此值才切块' },
-      { key: 'overlap', type: 'number', label: '相邻块交叠（像素）', hint: '推荐 64，防止跨块切断内容' },
+      // ── 识别与接口 ──
+      { key: 'base_url', group: 'core', type: 'text', label: '视觉 API 地址', hint: '留空 = 内置默认（https://api.deepseek.com）' },
+      { key: 'api_key_env', group: 'core', type: 'text', label: '密钥环境变量名', hint: '默认 DEEPSEEK_API_KEY；留空 = 用默认' },
+      { key: 'model', group: 'core', type: 'text', label: '视觉模型', hint: '留空 = 内置默认模型' },
+      { key: 'max_tokens', group: 'core', type: 'number', label: '输出 token 上限', hint: '单次识别返回的最大 token 数' },
+      { key: 'timeout_ms', group: 'core', type: 'number', label: '请求超时（毫秒）', hint: '留空 = 内置默认' },
       {
-        key: 'format', type: 'select', label: '块格式',
-        options: [{ value: '', label: '（默认 png）' }, { value: 'png', label: 'png（无损）' }, { value: 'jpeg', label: 'jpeg（省体积）' }],
-        hint: '仅 full 模式切块时有效'
-      },
-      { key: 'quality', type: 'number', label: 'jpeg 质量', hint: '40..100，仅 format=jpeg 有效' },
-      { key: 'with_overview', type: 'boolean', label: '输出布局参考图（overview）', hint: '在切块结果旁生成网格编号总览图' },
-      {
-        key: 'ocr_engine', type: 'select', label: '本地 OCR 引擎',
-        options: [
-          { value: '', label: '（默认 auto）' },
-          { value: 'auto', label: 'auto（优先 rapid，自动降级）' },
-          { value: 'rapid', label: 'rapid（RapidOCR）' },
-          { value: 'paddle', label: 'paddle（PaddleOCR）' },
-          { value: 'windows', label: 'windows（系统 OCR）' }
-        ],
+        key: 'ocr_engine', group: 'core', type: 'select', label: '本地 OCR 引擎',
+        options: [dft('（默认 auto）'), opt('auto', 'auto（优先 rapid，自动降级）'), opt('windows', 'windows（系统 OCR）'),
+          opt('paddle', 'paddle（PaddleOCR）'), opt('rapid', 'rapid（RapidOCR）'), opt('gpu', 'gpu（GPU 加速）')],
         hint: 'pipeline 模式的文字识别引擎'
       },
-      { key: 'out_dir', type: 'text', label: '输出目录', hint: '留空 = 源图同目录；相对路径基于源图目录' }
+      {
+        key: 'preprocess', group: 'core', type: 'select', label: '图片预处理',
+        options: [dft('（默认 auto）'), opt('auto', 'auto（自动反色/二值化/放大）'), opt('off', 'off（关闭）'),
+          opt('auto-enlarge-off', 'auto-enlarge-off（不自动放大）')],
+        hint: '深底/低对比/手写场景的预处理策略'
+      },
+      {
+        key: 'handwrite_route', group: 'core', type: 'select', label: '手写识别路由',
+        options: [dft('（默认 smart）'), opt('smart', 'smart（智能选择）'), opt('visual', 'visual（视觉模型直读）'),
+          opt('local', 'local（本地 OCR）'), opt('off', 'off（不特殊处理）')],
+        hint: '检测到手写时的处理方式'
+      },
+      {
+        key: 'upgrade', group: 'core', type: 'select', label: '低置信度升级',
+        options: [dft('（默认 full）'), opt('full', 'full（低置信/手写/深底都升级）'), opt('low', 'low（仅低置信升级）'),
+          opt('off', 'off（不升级）')],
+        hint: '本地 OCR 结果不佳时是否改用视觉 API 重读'
+      },
+
+      // ── 切块与输出 ──
+      { key: 'block_size', group: 'tile', type: 'number', label: '切块边长（像素）', hint: '官方缩放甜蜜点为 800' },
+      { key: 'cut_threshold', group: 'tile', type: 'number', label: '切块阈值（长边）', hint: '长边超过此值才切块' },
+      { key: 'overlap', group: 'tile', type: 'number', label: '相邻块交叠（像素）', hint: '推荐 64，防止跨块切断内容' },
+      { key: 'group_size', group: 'tile', type: 'number', label: '分层聚合组大小', hint: '每多少个块合并成一次请求' },
+      {
+        key: 'format', group: 'tile', type: 'select', label: '块格式',
+        options: [dft('（默认 png）'), opt('png', 'png（无损）'), opt('jpeg', 'jpeg（省体积）')],
+        hint: '仅 full 模式切块时有效'
+      },
+      { key: 'quality', group: 'tile', type: 'number', label: 'jpeg 质量', hint: '40..100，仅 format=jpeg 有效' },
+      { key: 'with_overview', group: 'tile', type: 'boolean', label: '输出布局参考图（overview）', hint: '在切块结果旁生成网格编号总览图' },
+      { key: 'out_dir', group: 'tile', type: 'text', label: '输出目录', hint: '留空 = 源图同目录；相对路径基于源图目录' },
+      {
+        key: 'rotate', group: 'tile', type: 'select', numeric: true, label: '图片旋转（度）',
+        options: [dft('（默认 0）'), opt('90', '90°'), opt('180', '180°'), opt('270', '270°')],
+        hint: '图片横倒/倒置时使用'
+      },
+      {
+        key: 'mode', group: 'tile', type: 'select', label: '请求编排模式',
+        options: [dft('（默认 auto）'), opt('auto', 'auto（按图片数自动）'), opt('single', 'single（单请求）'),
+          opt('layered', 'layered（分层聚合）')],
+        hint: '块数较多时 layered 更稳'
+      },
+      { key: 'json', group: 'tile', type: 'boolean', label: 'JSON 结构化返回', hint: '仅 full 模式有效' },
+
+      // ── 性能与 OCR 池 ──
+      { key: 'interest_concurrency', group: 'perf', type: 'number', label: '兴趣点并行数', hint: '1..4，默认 2；调高更快但更吃资源' },
+      { key: 'ocr_pool', group: 'perf', type: 'number', label: 'OCR 进程池大小', hint: '留空 = 按设备档位自动' },
+      { key: 'ocr_cache', group: 'perf', type: 'boolean', label: '启用 OCR 结果缓存', hint: '同一图重复识别时省时间' },
+      { key: 'ocr_preproc', group: 'perf', type: 'boolean', label: '启用 OCR 前预处理', hint: '深底/低对比时先做图像增强' },
+      { key: 'ocr_pool_timeout_ms', group: 'perf', type: 'number', label: 'OCR 池单请求超时（毫秒）', hint: '慢机可调大' },
+      {
+        key: 'performance_tier', group: 'perf', type: 'select', label: '性能档位',
+        options: [dft('（默认 auto）'), opt('auto', 'auto（按设备自动）'), opt('fast', 'fast（高性能）'),
+          opt('normal', 'normal（均衡）'), opt('slow', 'slow（低性能/省电）')],
+        hint: '影响并发、超时与 GPU 开关推荐'
+      },
+
+      // ── GPU 加速 ──
+      {
+        key: 'gpu_provider', group: 'gpu', type: 'select', label: 'GPU 提供者',
+        options: [dft('（默认 auto）'), opt('auto', 'auto（自动选择）'), opt('cuda', 'cuda（NVIDIA）'),
+          opt('dml', 'dml（DirectML）'), opt('openvino', 'openvino'), opt('off', 'off（关闭 GPU）')],
+        hint: '按需开启；失败会自动回退 CPU'
+      },
+      { key: 'gpu_python', group: 'gpu', type: 'text', label: 'GPU 版 Python 路径', hint: '留空 = 内置约定（~/rapid_gpu_venv）' },
+      { key: 'gpu_device', group: 'gpu', type: 'text', label: 'GPU 设备', hint: '留空 = 自动选择设备' },
+      { key: 'gpu_fallback', group: 'gpu', type: 'boolean', label: 'GPU 失败回退 CPU', hint: '建议保持开启（默认）' },
+
+      // ── 设备适配 ──
+      { key: 'device_benchmark', group: 'device', type: 'boolean', label: '启动时跑设备基准', hint: '用于档位推荐；关闭可略快启动' },
+      { key: 'device_power_probe', group: 'device', type: 'boolean', label: '启动时探测电源', hint: '电池/交流影响档位推荐' },
+      {
+        key: 'platform_fallback', group: 'device', type: 'select', label: '平台降级策略',
+        options: [dft('（默认 auto）'), opt('auto', 'auto'), opt('on', 'on（总是启用）'), opt('off', 'off（关闭）')],
+        hint: '非 Windows 平台或缺失依赖时的降级行为'
+      },
+      { key: 'slow_net_adapt', group: 'device', type: 'boolean', label: '慢网自适应', hint: '网络慢时降低请求体积/并发' },
+
+      // ── 调试与测试 ──
+      { key: 'debug', group: 'debug', type: 'boolean', label: '调试日志', hint: '输出更详细的运行日志' },
+      { key: 'test_timeout_factor', group: 'debug', type: 'number', label: '测试超时倍率', hint: '自检脚本用；一般无需改' },
+      { key: 'test_skip_timing', group: 'debug', type: 'boolean', label: '测试跳过时序断言', hint: '慢机跑自检时用' }
     ];
 
     /** 页面样式：继承宿主主题（currentColor / color-mix），随组件挂载。 */
@@ -80,6 +166,8 @@ window.__ModuleLoader__.load({
       .vet-btn:disabled { opacity: .5; cursor: default; }
       .vet-status { font-size: 12px; opacity: .8; }
       .vet-error { color: #d9534f; font-size: 12px; margin-top: 8px; }
+      .vet-group { margin: 0 0 18px; }
+      .vet-group-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; opacity: .85; }
       .vet-note { font-size: 12px; opacity: .6; margin-top: 12px; line-height: 1.6; }
     `;
 
@@ -87,7 +175,8 @@ window.__ModuleLoader__.load({
     function parseValue(field, raw) {
       const text = String(raw ?? '');
       if (text.trim() === '') return undefined;
-      if (field.type === 'number') {
+      // numeric：数字输入框，以及值为数字的枚举（如 rotate 的 0/90/180/270）
+      if (field.type === 'number' || field.numeric) {
         const n = Number(text);
         return Number.isFinite(n) ? n : undefined;
       }
@@ -197,45 +286,52 @@ window.__ModuleLoader__.load({
       // 插件页折叠态只需要一句摘要
       if (props.view === 'summary') return '大图切块识别插件：视觉端点、切块与本地 OCR 设置。';
 
+      /** 渲染单个字段 → [标签元素, 控件元素]。 */
+      const renderField = (field) => [
+        h('div', { key: field.key + '-label' },
+          h('div', { className: 'vet-label' }, field.label),
+          field.hint ? h('div', { className: 'vet-hint' }, field.hint) : null
+        ),
+        field.type === 'boolean'
+          ? h('label', { key: field.key + '-input', className: 'vet-row-check' },
+              h('input', {
+                type: 'checkbox',
+                checked: Boolean(shown(field)),
+                disabled: !writable || busy,
+                onChange: (event) => edit(field, event.target.checked)
+              }),
+              h('span', null, Boolean(shown(field)) ? '开启' : '关闭（默认）')
+            )
+          : field.type === 'select'
+            ? h('select', {
+                key: field.key + '-input',
+                className: 'vet-input',
+                value: selectValue(shown(field)),
+                disabled: !writable || busy,
+                onChange: (event) => edit(field, event.target.value)
+              }, ...field.options.map((option) => h('option', { key: option.value, value: option.value }, option.label)))
+            : h('input', {
+                key: field.key + '-input',
+                className: 'vet-input',
+                type: field.type === 'number' ? 'number' : 'text',
+                value: shown(field),
+                disabled: !writable || busy,
+                placeholder: '（默认）',
+                onChange: (event) => edit(field, event.target.value)
+              })
+      ];
+
       return h('div', { className: 'vet-card' },
         h('style', null, STYLE),
         h('p', { className: 'vet-desc' },
           '这里的设置会写入 DSH profile 并立即生效；留空的项沿用插件配置文件与内置默认值。'),
-        h('div', { className: 'vet-grid' },
-          ...FIELDS.flatMap((field) => [
-            h('div', { key: field.key + '-label' },
-              h('div', { className: 'vet-label' }, field.label),
-              field.hint ? h('div', { className: 'vet-hint' }, field.hint) : null
-            ),
-            field.type === 'boolean'
-              ? h('label', { key: field.key + '-input', className: 'vet-row-check' },
-                  h('input', {
-                    type: 'checkbox',
-                    checked: Boolean(shown(field)),
-                    disabled: !writable || busy,
-                    onChange: (event) => edit(field, event.target.checked)
-                  }),
-                  h('span', null, Boolean(shown(field)) ? '开启' : '关闭（默认）')
-                )
-              : field.type === 'select'
-                ? h('select', {
-                    key: field.key + '-input',
-                    className: 'vet-input',
-                    value: selectValue(shown(field)),
-                    disabled: !writable || busy,
-                    onChange: (event) => edit(field, event.target.value)
-                  }, ...field.options.map((opt) => h('option', { key: opt.value, value: opt.value }, opt.label)))
-                : h('input', {
-                    key: field.key + '-input',
-                    className: 'vet-input',
-                    type: field.type === 'number' ? 'number' : 'text',
-                    value: shown(field),
-                    disabled: !writable || busy,
-                    placeholder: '（默认）',
-                    onChange: (event) => edit(field, event.target.value)
-                  })
-          ])
-        ),
+        // 按分组渲染（组内字段顺序 = FIELDS 声明顺序）
+        ...GROUPS.map((group) => h('section', { key: group.id, className: 'vet-group' },
+          h('h4', { className: 'vet-group-title' }, group.title),
+          h('div', { className: 'vet-grid' },
+            ...FIELDS.filter((field) => field.group === group.id).flatMap(renderField)
+          )
+        )),
         h('div', { className: 'vet-actions' },
           h('button', { className: 'vet-btn primary', disabled: !writable || busy || !dirty, onClick: save }, busy ? '保存中…' : '保存'),
           h('button', { className: 'vet-btn', disabled: !writable || busy || !dirty, onClick: discard }, '放弃改动'),
@@ -248,9 +344,10 @@ window.__ModuleLoader__.load({
         ),
         error ? h('div', { className: 'vet-error' }, error) : null,
         h('p', { className: 'vet-note' },
-          '其余高级项（并发、预处理、设备档位、OCR 池等）仍可通过配置文件 ',
+          '本页已覆盖插件全部可配置项（分六组）。仍可直接编辑配置文件 ',
           h('code', null, '~/.dsh/vision-exp-tile.json'),
-          ' 或环境变量设置；后续版本会把它们逐步搬到这里。')
+          ' 或用环境变量设置（优先级：本页设置 > 配置文件 > 环境变量 > 内置默认）；',
+          '设备画像（device_profile）由插件自动维护，为只读项，不在本页展示。')
       );
     }
 
