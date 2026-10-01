@@ -22,7 +22,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test tests/client.test.js tests/client-bundle.test.js tests/device.test.js tests/engine.test.js tests/gpu.test.js tests/grid.test.js tests/handwrite.test.js tests/host-io.test.js tests/ocr-pool.test.js tests/preprocess.test.js tests/prompts.test.js tests/region.test.js tests/settings.test.js tests/settings-file.test.js tests/suite-env.test.js tests/temp-cleanup.test.js tests/v014.test.js",
+    "test": "node --test tests/client.test.js tests/client-bundle.test.js tests/device.test.js tests/engine.test.js tests/gpu.test.js tests/grid.test.js tests/handwrite.test.js tests/host-io.test.js tests/ocr-pool.test.js tests/plugin-config.test.js tests/preprocess.test.js tests/prompts.test.js tests/region.test.js tests/settings.test.js tests/settings-file.test.js tests/suite-env.test.js tests/temp-cleanup.test.js tests/v014.test.js",
     "selfcheck": "node scripts/self-check.mjs",
     "smoke": "node scripts/std-facet-smoke.mjs && node scripts/cordis-entry-smoke.mjs && node scripts/client-settings-smoke.mjs",
     "smoke:std": "node scripts/std-facet-smoke.mjs",

@@ -60,11 +60,15 @@ export const Config = z.object({
 });
 
 /**
- * 从宿主传入的插件配置中提取「用户显式设置过」的字段（忽略 undefined）。
+ * 从宿主传入的插件配置中提取「用户显式设置过」的字段，作为运行时配置的覆盖层。
  *
- * 用途：设置页写入的值要作为**最高优先级覆盖层**并入运行时配置链
- * （见 src/index.js 的 sourceGetter 组装），因此必须先剔除未填写的键，
- * 否则 schema 上的空值会盖掉配置文件中的有效设置。
+ * ⚠ volatile 语义（宿主实测）：标了 `.volatile()` 的字段，Cordis 传给 `apply` 的**不是
+ * 裸值**，而是一个**可热更新的包装对象**（取当前值要调 `.get()`，宿主写入新值后就地更新）。
+ * 早期版本直接把包装对象并入配置链，导致下游校验报
+ * `overlap 必须是 0~399 的整数（实际: [object Object]）`——本函数因此做两件事：
+ *   ① 解包：带 `.get()` 的对象先取当前值（从而拿到「设置页最新保存的值」）；
+ *   ② 只收标量：字符串/数字/布尔之外的任何东西一律跳过，避免对象继续污染配置链。
+ * 调用方在**每次读取配置时**都会调用本函数，因此设置页保存后无需重启即可热生效。
  *
  * @param {object|undefined} configRaw - Cordis 传入的插件配置（Config 解析结果）。
  * @returns {object} 仅含已显式设置字段的 snake_case 快照（可直接并入 settings 快照）。
@@ -73,10 +77,16 @@ export function pickOverrides(configRaw) {
   if (!configRaw || typeof configRaw !== 'object') return {};
   /** @type {Record<string, unknown>} */
   const out = {};
-  for (const [key, value] of Object.entries(configRaw)) {
-    // 只收标量/简单值；undefined 视为「未设置」，字符串空值也视为未设置（设置页清空 = 回落）
-    if (value === undefined || value === null) continue;
-    if (typeof value === 'string' && value.trim() === '') continue;
+  for (const [key, raw] of Object.entries(configRaw)) {
+    // ① 解包 volatile 包装（`.get()` 取当前值）
+    let value = raw;
+    if (raw && typeof raw === 'object' && typeof raw.get === 'function') {
+      try { value = raw.get(); } catch { continue; }
+    }
+    // ② 只接受标量；undefined / null / 空串视为「未设置」，让下层回落
+    const kind = typeof value;
+    if (kind !== 'string' && kind !== 'number' && kind !== 'boolean') continue;
+    if (kind === 'string' && value.trim() === '') continue;
     out[key] = value;
   }
   return out;

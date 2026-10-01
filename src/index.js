@@ -1053,8 +1053,9 @@ export function apply(ctx, configRaw) {
     // initFileSettings 负责：旧分区一次性迁移 + 初始 env 同步（applySettingsEnv）。
     // 注意不直接采用它返回的 getter——下面用「文件快照 + 设置页覆盖」自行组装。
     initFileSettings();
-    const overrides = pickOverrides(configRaw);
-    sourceGetter = () => normalizeFromSettings({ ...readSnapshot(), ...overrides });
+    // ⚠ 每次读取配置时**重新**解包 volatile（pickOverrides 内部会取 .get() 的最新值），
+    // 这样设置页保存后无需重启即热生效；不能把结果算一次存成常量。
+    sourceGetter = () => normalizeFromSettings({ ...readSnapshot(), ...pickOverrides(configRaw) });
 
     // v0.4.1 扩展延续：异步设备探测完成后，按 auto 档位重新应用 env
     // （slow/省电/平台降级/慢网等推荐统一合并后落地），并幂等回写只读设备画像。
