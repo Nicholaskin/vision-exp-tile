@@ -1012,7 +1012,9 @@ function registerToolset(ctx, liveCfg) {
  */
 export function apply(ctx, configRaw) {
   // configRaw 可为 undefined，normalizeConfig 负责合并默认并校验。
-  const cfg = normalizeConfig(configRaw);
+  // ⚠ 必须先用 pickOverrides 解包：宿主传入的 volatile 字段是**热更新包装对象**，
+  // 直接交给 normalizeConfig 会因「实际: [object Object]」导致插件启用失败（真机踩坑）。
+  const cfg = normalizeConfig(pickOverrides(configRaw));
 
   // ── 运行时快照：工具执行时惰性读最新设置；
   //    sourceGetter 为 null（无 settings 服务或尚未注册）时回退到初始 cfg。──

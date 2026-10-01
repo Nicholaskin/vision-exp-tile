@@ -102,6 +102,30 @@ check(
   registered.every((t) => t.name && t.description && t.parameters && typeof t.execute === 'function')
 );
 
+/* ---------- 3.5 真机场景回归：宿主传入 volatile 包装配置 ---------- */
+// DSH 0.2.0 传给 apply 的 volatile 字段是「热更新包装对象」（带 .get()），不是裸值；
+// 早期版本把它当普通值 → 插件启用失败：
+//   config: overlap 必须是 0~399 的整数（实际: [object Object]）
+// 这里用同形状的替身复现该场景，确保「解包」这一步不再被漏掉。
+const wrap = (v) => ({ get: () => v });
+try {
+  const registeredWrapped = [];
+  const ctxWrapped = Object.assign({}, ctx, {
+    tools: { register(def) { registeredWrapped.push(def); return () => {}; } }
+  });
+  mod.apply(ctxWrapped, {
+    overlap: wrap(64),
+    block_size: wrap(800),
+    model: wrap('m'),
+    with_overview: wrap(true),
+    quality: wrap(90)
+  });
+  check('apply 收到 volatile 包装配置不抛（真机回归）', true);
+  check('包装配置下仍注册 3 个工具', registeredWrapped.length === 3, String(registeredWrapped.length));
+} catch (error) {
+  check('apply 收到 volatile 包装配置不抛（真机回归）', false, String(error));
+}
+
 /* ---------- 4. 清理函数可执行 ---------- */
 try {
   for (const c of cleanups) c();
