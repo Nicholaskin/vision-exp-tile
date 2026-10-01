@@ -73,3 +73,11 @@ AGENTS.md
 发布总结*.md
 _video-project/
 _video-project-*/
+
+# ── v1.0.0 增补：本轮新增的内部产物（本机留存，不进公开仓库）────────────
+AGENTS.md.bak-*
+_v1验证/
+_rollback-prod-*/
+_skill-provider-fix/
+v1.0.0-设计与验证.md
+tests/fixtures/*_tiles/

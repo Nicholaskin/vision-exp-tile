@@ -19,36 +19,23 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
-import { cropRegion, normalizeRect } from './tile-engine.js';
+import { cropRegion, normalizeRect, probeImageSize } from './tile-engine.js';
 import { ocrText, ocrPoolTimeoutMs } from './ocr-local.js';
 import { detectHandwrite } from './handwrite.js';
 import { previewImage, recognizeRegion } from './vision-client.js';
 import { buildPixelGrid } from './pixelgrid.js';
 import { cleanupOldTempArtifacts } from './temp-cleanup.js';
+// v1.0.0：并发限流器抽到公共模块（供 pipeline / vision-client 组间并发 / 批量工具复用）
+import { runConcurrent } from './concurrency.js';
 
 /** 默认兴趣点区域识别提问（要求中文、结构化） */
 const REGION_QUESTION = '详细识别该区域的内容：文字、物体、图表、颜色布局等；有文字则逐字转录。';
 
 /**
- * 简易并发限流器（无第三方依赖）：items 逐批调度，fn 返回 Promise；
- * 供文字区/兴趣区两段并行处理复用。
- * @param {Array} items
- * @param {number} limit - 同时进行数（≥1）
- * @param {(item, index) => Promise<any>} fn
+ * 兼容旧导出：限流器实现已迁至 `src/concurrency.js`（同名同语义），此处仅做转出，
+ * 保证既有调用方与测试 `import { runConcurrent } from '../src/pipeline.js'` 不变。
  */
-export async function runConcurrent(items, limit, fn) {
-  const results = new Array(items.length);
-  let cursor = 0;
-  const workers = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
-    while (cursor < items.length) {
-      const idx = cursor;
-      cursor += 1;
-      results[idx] = await fn(items[idx], idx);
-    }
-  });
-  await Promise.all(workers);
-  return results;
-}
+export { runConcurrent };
 
 /** 读取兴趣点并发度：pipeline 参数 > 环境变量 DSH_INTEREST_CONCURRENCY > 默认 2 */
 export function interestConcurrencyOf(pipelineValue) {
@@ -81,7 +68,7 @@ export function interestConcurrencyOf(pipelineValue) {
  */
 export async function runPipeline(opts) {
   const {
-    apiKey, baseURL, model, buf, ext, width, height,
+    apiKey, apiCfg, baseURL, model, buf, ext, width, height,
     question = '', rotate = 0, ocrEngine = 'auto',
     ocrOverride, maxEdge = 800, maxTokens = 8192,
     tempDir, signal, fetchImpl, timeoutMs = 300000,
@@ -115,15 +102,26 @@ export async function runPipeline(opts) {
   /* ── 1. 整图预检（512×512 缩略，判断有无文字/兴趣点） ── */
   stages.push({ kind: 'precheck' });
   const preview = await previewImage({
-    apiKey, baseURL, model,
+    apiKey, apiCfg, baseURL, model,
     buffer: buf, mediaType,
     question,
     maxTokens,
     signal, fetchImpl, timeoutMs
   });
+  // v1.0.0：统计视觉结果缓存命中（命中=这一步没花钱）。暴露给上层的理由：
+  // 缓存命中时"快得不正常"，没有这个计数就没人能判断到底省没省。
+  let cacheHits = preview.cached ? 1 : 0;
   const hasText = Boolean(preview.hasText);
+  /* v1.0.0 修复（批量场景暴露的真实缺陷）：尺寸未知时**必须自行探测**。
+   * 旧行为是直接用调用方传来的 width/height；批量流水线拿不到尺寸便传了 0，
+   * 结果 `normalizeRect(rect, 0, 0)` 把每个文字区域都钳成 (0,0)-(0,0)——
+   * 不报错、不中断，但 precheck.json 与后续裁剪全用错坐标（静默错数据最危险）。 */
+  const dims = (Number(width) > 0 && Number(height) > 0)
+    ? { width: Number(width), height: Number(height) }
+    : await probeImageSize(buf, ext);
+  stages.push({ kind: 'image-size', width: dims.width, height: dims.height, source: Number(width) > 0 ? 'caller' : 'probed' });
   // 相对坐标 → 原图像素坐标（预检输出的是 0..1，统一换算供后续裁剪/回写）
-  const toPx = (r) => normalizeRect([r.x0, r.y0, r.x1, r.y1], width, height);
+  const toPx = (r) => normalizeRect([r.x0, r.y0, r.x1, r.y1], dims.width, dims.height);
   const textRegions = (preview.textRegions ?? []).slice(0, 3).map((r) => ({ ...toPx(r), relative: r }));
   const interestRegions = (preview.interestRegions ?? []).slice(0, 6).map((r) => ({
     ...toPx(r),
@@ -196,7 +194,7 @@ export async function runPipeline(opts) {
       if (isHandwrite && apiKey && hwMode !== 'off') {
         try {
           const hwRes = await recognizeRegion({
-            apiKey, baseURL, model,
+            apiKey, apiCfg, baseURL, model,
             buffer: cropped.buffer,
             mediaType: cropped.mediaType,
             label: `手写文字区域 ${i}`,
@@ -204,6 +202,7 @@ export async function runPipeline(opts) {
             maxTokens,
             signal, fetchImpl, timeoutMs
           });
+          if (hwRes.cached) cacheHits += 1;
           ocrResult = {
             engine: 'handwrite-api',
             text: hwRes.description,
@@ -232,7 +231,7 @@ export async function runPipeline(opts) {
         } catch (error) {
           try {
             const fallback = await recognizeRegion({
-              apiKey, baseURL, model,
+              apiKey, apiCfg, baseURL, model,
               buffer: cropped.buffer,
               mediaType: cropped.mediaType,
               label: `文字区域 ${i}`,
@@ -262,7 +261,6 @@ export async function runPipeline(opts) {
         const scores = ocrResult.lines.map((l) => Number(l.score)).filter((s) => Number.isFinite(s));
         const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 1;
         const pre = Array.isArray(ocrResult.preprocess) ? ocrResult.preprocess : [];
-        const handwritingSign = pre.includes('otsu-under-dark');          // 深底处理
         const darkFail = Boolean(ocrResult.isDark) && ocrResult.lines.length === 0; // 深底处理失败
         // 手写判别信号下阈值放宽（rapid 手写平均分常在 0.82-0.92 抖动），印刷体不误伤
         const thresh = isHandwrite === true ? 0.9 : 0.85;
@@ -277,7 +275,7 @@ export async function runPipeline(opts) {
         const why = [avgScore < 0.85 ? `置信度 ${avgScore.toFixed(2)}<0.85` : '', pre.includes('enlarge') && (avgScore < 0.9) ? '手写/小字候选' : '', ocrResult.isDark && ocrResult.lines.length === 0 ? '深底处理失败' : ''].filter(Boolean).join('+');
         try {
           const up = await recognizeRegion({
-            apiKey, baseURL, model,
+            apiKey, apiCfg, baseURL, model,
             buffer: cropped.buffer,
             mediaType: cropped.mediaType,
             label: `文字区域 ${i}`,
@@ -345,7 +343,7 @@ ${j.ocrResult.text || '（未检出文字）'}`);
       await writeFile(regionPath, cropped.buffer);
       stages.push({ kind: 'interest-crop', index: i, path: regionPath, outSize: `${cropped.width}x${cropped.height}` });
       const res = await recognizeRegion({
-        apiKey, baseURL, model,
+        apiKey, apiCfg, baseURL, model,
         buffer: cropped.buffer,
         mediaType: cropped.mediaType,
         label: region.label,
@@ -353,6 +351,7 @@ ${j.ocrResult.text || '（未检出文字）'}`);
         maxTokens,
         signal, fetchImpl, timeoutMs
       });
+      if (res.cached) cacheHits += 1; // 命中视觉结果缓存：这一步没发请求
       return { region, i, regionPath, cropped, res };
     })
     : [];
@@ -388,7 +387,8 @@ ${j.ocrResult.text || '（未检出文字）'}`);
     ocr,
     pixelGrids,
     regionDetails,
-    outputDir
+    outputDir,
+    cached: cacheHits // 视觉结果缓存命中次数（0 = 全部真发了请求）
   };
 }
 

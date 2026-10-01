@@ -226,6 +226,35 @@ export function decodeFallback(buf, ext) {
   throw new Error(`tile: fallback engine supports PNG/JPEG only; got "${extL}" — install sharp for full format support`);
 }
 
+/**
+ * 轻量探测图片尺寸（v1.0.0 新增）。
+ *
+ * 用途：调用方（批量流水线等）有时拿不到尺寸，而下游的「相对坐标 → 像素坐标」换算
+ * 必须知道原图宽高；传 0 会把矩形钳成 0（静默错数据，比报错更危险）——
+ * 所以这里提供一条「不知道就问图片本身」的通道。
+ *
+ * 实现：sharp 可用时走 metadata()（不解码像素，快）；否则回退整图解码（pngjs/jpeg-js）。
+ * @param {Buffer} buf - 原图字节
+ * @param {string} ext - 扩展名（.png/.jpg/.jpeg/…）
+ * @returns {Promise<{width:number, height:number}>}
+ * @throws {Error} 两种引擎都不可用或格式不被回退引擎支持时抛出（调用方需自行决定是否兜底）
+ */
+export async function probeImageSize(buf, ext) {
+  const sharp = loadSharp();
+  if (sharp) {
+    try {
+      const meta = await sharp(buf, { failOn: 'none' }).metadata();
+      if (Number(meta?.width) > 0 && Number(meta?.height) > 0) {
+        return { width: Number(meta.width), height: Number(meta.height) };
+      }
+    } catch {
+      /* metadata 失败 → 落到回退解码 */
+    }
+  }
+  const img = decodeFallback(buf, ext);
+  return { width: img.width, height: img.height };
+}
+
 /** 从 RGBA 像素中提取一个子矩形（1:1 复制，无缩放） */
 export function extractRgba(image, t) {
   const out = new Uint8Array(t.w * t.h * 4);
@@ -298,9 +327,6 @@ export async function splitImage(buf, ext, opts = {}) {
 /* ------------------------------------------------------------------ */
 /* 兴趣点区域裁剪（vision_region_crop / pipeline 使用）                 */
 /* ------------------------------------------------------------------ */
-
-/** 区域矩形格式：[x0, y0, x1, y1]（原图像素坐标） */
-export const RECT_KIND = 'rect';
 
 /**
  * 把模型给出的矩形统一为"原图像素坐标"（含边界钳制）。

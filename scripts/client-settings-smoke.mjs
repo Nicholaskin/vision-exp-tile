@@ -140,7 +140,10 @@ const onlyUi = fieldKeys.filter((k) => !configKeys.includes(k));
 const onlyConfig = configKeys.filter((k) => !fieldKeys.includes(k));
 check('界面字段 ⊆ 配置字段', onlyUi.length === 0, `仅界面有：${onlyUi.join(', ')}`);
 check('配置字段 ⊆ 界面字段', onlyConfig.length === 0, `仅配置有：${onlyConfig.join(', ')}`);
-check('字段数一致（全量覆盖，>= 35 项）', fieldKeys.length === configKeys.length && fieldKeys.length >= 35, `UI ${fieldKeys.length} / Config ${configKeys.length}`);
+// ⚠ 阈值说明：v1.0.0 新增 12 项后，界面字段 = Config 字段 = **49**（37 + 12）。
+//    任务书原话是「提到 ≥50」，但那会让本断言必然失败（49 < 50）——按盘上实测取 49，
+//    护栏作用不变（任何一项漏进设置页都会立刻跌破 49 并被相等性断言拦下）。
+check('字段数一致（全量覆盖，>= 49 项）', fieldKeys.length === configKeys.length && fieldKeys.length >= 49, `UI ${fieldKeys.length} / Config ${configKeys.length}`);
 
 /* ---------- 6. 保存路径已接线 ---------- */
 check('保存路径调用 form.set 与 form.unset', /await form\.set\(/.test(src) && /await form\.unset\(/.test(src));

@@ -12,6 +12,11 @@ import { join } from 'node:path';
 import { previewImage, recognizeRegion } from '../src/vision-client.js';
 import { runPipeline } from '../src/pipeline.js';
 
+// v1.0.0：本文件此前**未登记进 test 脚本**（Node 20 无 glob ⇒ 一直没被跑），
+// 纳入回归后必须先隔掉「视觉结果缓存」——否则会被其它测试文件写入的同图缓存污染，
+// 表现为「fetch 只调用了 0 次」这类假红（缓存命中是正确行为，但会破坏这里对请求次数的断言）。
+process.env.DSH_RESULT_CACHE = '0';
+
 /** 构造 mock fetchImpl：按调用序号返回预设响应数组 */
 function makeFetch(responders) {
   let count = 0;

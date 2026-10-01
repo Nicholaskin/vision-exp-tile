@@ -23,7 +23,18 @@ export const SETTINGS_FIELDS = [
   { key: 'base_url', type: 'text', labelKey: 'baseUrl', advanced: false, configKey: 'baseURL' },
   { key: 'model', type: 'text', labelKey: 'model', advanced: false, configKey: 'model' },
   { key: 'api_key_env', type: 'text', labelKey: 'apiKeyEnv', advanced: false, configKey: 'apiKeyEnv' },
+  // v1.0.0 大更新③：多模态端点泛化（分组「识别与接口」；契约《v1.0.0-配置项契约.md》）
+  { key: 'provider', type: 'enum', labelKey: 'provider', advanced: false, options: ['auto', 'deepseek', 'openai', 'minimal'], configKey: 'provider', envKey: 'DSH_API_PROVIDER' },
+  { key: 'api_path', type: 'text', labelKey: 'apiPath', advanced: false, configKey: 'apiPath', envKey: 'DSH_API_PATH' },
+  // secret:true —— 敏感项（设置页密码控件，日志打码），非通用元信息，仅供 UI 参考
+  { key: 'api_key', type: 'text', labelKey: 'apiKey', advanced: false, configKey: 'apiKey', envKey: 'DSH_API_KEY', secret: true },
   // 高级
+  // v1.0.0 大更新③：端点泛化的高级逃生口（JSON 文本 / 厂商专有字段下发策略）
+  { key: 'extra_headers', type: 'text', labelKey: 'extraHeaders', advanced: true, configKey: 'extraHeaders', envKey: 'DSH_API_EXTRA_HEADERS', secret: true },
+  { key: 'extra_body', type: 'text', labelKey: 'extraBody', advanced: true, configKey: 'extraBody', envKey: 'DSH_API_EXTRA_BODY' },
+  { key: 'image_detail', type: 'enum', labelKey: 'imageDetail', advanced: true, options: ['auto', 'off', 'low', 'high', 'original'], configKey: 'imageDetail', envKey: 'DSH_IMAGE_DETAIL' },
+  { key: 'thinking_mode', type: 'enum', labelKey: 'thinkingMode', advanced: true, options: ['auto', 'on', 'off'], configKey: 'thinkingMode', envKey: 'DSH_THINKING_MODE' },
+  { key: 'max_tokens_field', type: 'enum', labelKey: 'maxTokensField', advanced: true, options: ['auto', 'max_tokens', 'max_completion_tokens'], configKey: 'maxTokensField', envKey: 'DSH_MAX_TOKENS_FIELD' },
   { key: 'block_size', type: 'number', labelKey: 'blockSize', advanced: true, configKey: 'blockSize' },
   { key: 'cut_threshold', type: 'number', labelKey: 'cutThreshold', advanced: true, configKey: 'cutThreshold' },
   { key: 'overlap', type: 'number', labelKey: 'overlap', advanced: true, configKey: 'overlap' },
@@ -41,6 +52,11 @@ export const SETTINGS_FIELDS = [
   { key: 'ocr_pool', type: 'number', labelKey: 'ocrPool', advanced: true, configKey: 'ocrPool', envKey: 'DSH_OCR_POOL' },
   { key: 'ocr_cache', type: 'boolean', labelKey: 'ocrCache', advanced: true, configKey: 'ocrCache', envKey: 'DSH_OCR_CACHE' },
   { key: 'ocr_preproc', type: 'boolean', labelKey: 'ocrPreproc', advanced: true, configKey: 'ocrPreproc', envKey: 'DSH_OCR_PREPROC' },
+  // v1.0.0 大更新④：性能与结果缓存（分组「性能与 OCR 池」）
+  { key: 'api_concurrency', type: 'number', labelKey: 'apiConcurrency', advanced: true, configKey: 'apiConcurrency', envKey: 'DSH_API_CONCURRENCY' },
+  { key: 'result_cache', type: 'boolean', labelKey: 'resultCache', advanced: true, configKey: 'resultCache', envKey: 'DSH_RESULT_CACHE' },
+  { key: 'result_cache_ttl_hours', type: 'number', labelKey: 'resultCacheTtlHours', advanced: true, configKey: 'resultCacheTtlHours', envKey: 'DSH_RESULT_CACHE_TTL_HOURS' },
+  { key: 'result_cache_max_mb', type: 'number', labelKey: 'resultCacheMaxMb', advanced: true, configKey: 'resultCacheMaxMb', envKey: 'DSH_RESULT_CACHE_MAX_MB' },
   // v0.4.0：GPU 多设备加速
   { key: 'gpu_provider', type: 'enum', labelKey: 'gpuProvider', advanced: true, options: ['auto', 'cuda', 'dml', 'openvino', 'off'], envKey: 'DSH_OCR_GPU_PROVIDER', configKey: 'gpuProvider' },
   { key: 'gpu_python', type: 'text', labelKey: 'gpuPython', advanced: true, envKey: 'DSH_OCR_GPU_PYTHON', configKey: 'gpuPython' },

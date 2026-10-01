@@ -94,8 +94,8 @@ try {
 }
 
 const names = registered.map((t) => t.name).sort();
-const expected = ['vision_region_crop', 'vision_tile_recognize', 'vision_tile_split'];
-check('恰好注册 3 个工具', registered.length === 3, `实际 ${registered.length}：${names.join(', ')}`);
+const expected = ['vision_batch_recognize', 'vision_region_crop', 'vision_tile_recognize', 'vision_tile_split'];
+check('恰好注册 4 个工具', registered.length === 4, `实际 ${registered.length}：${names.join(', ')}`);
 check('工具名与预期一致', JSON.stringify(names) === JSON.stringify(expected), names.join(', '));
 check(
   '每个工具含 name/description/parameters/execute',
@@ -121,7 +121,7 @@ try {
     quality: wrap(90)
   });
   check('apply 收到 volatile 包装配置不抛（真机回归）', true);
-  check('包装配置下仍注册 3 个工具', registeredWrapped.length === 3, String(registeredWrapped.length));
+  check('包装配置下仍注册 4 个工具', registeredWrapped.length === 4, String(registeredWrapped.length));
 } catch (error) {
   check('apply 收到 volatile 包装配置不抛（真机回归）', false, String(error));
 }

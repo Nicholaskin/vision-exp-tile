@@ -2,9 +2,14 @@
  * index.js — vision-exp-tile 插件入口
  *
  * 为视觉模型 deepseek-v4-flash-vision-exp 定制的大图分块识别插件。
- * 注册两个模型工具：
- *   - vision_tile_split     纯切图 + 坐标标注 + 分块聚合逻辑输出（不调用视觉 API）
- *   - vision_tile_recognize 切图后直连 DeepSeek 视觉 API 识别并聚合，输出结构化答案（不代为统计/不显示 token 与费用，实际计费以 DeepSeek 官方 API 平台账单为准）
+ * 注册四个模型工具（v1.0.0 起）：
+ *   - vision_tile_split       纯切图 + 坐标标注 + 分块聚合逻辑输出（不调用视觉 API）
+ *   - vision_tile_recognize   切图后直连视觉 API 识别并聚合，输出结构化答案（不代为统计/不显示 token 与费用，实际计费以 API 平台账单为准）
+ *   - vision_region_crop      兴趣点/文字区域裁剪（可顺带视觉识别）
+ *   - vision_batch_recognize  目录级批量识别流水线，产出可续跑的报告（v1.0.0 新增）
+ *
+ * v1.0.0：多模态端点泛化（端点画像见 api-profile.js：可接任意 OpenAI 兼容端点/本地视觉模型）；
+ *         性能改造（分层聚合组间并发 + 视觉结果缓存 + 算力预算）；批量识别与报告产出。
  *
  * 形态：裸工具对象 + ctx.tools.register（不引入 defineTool，保持与官方工具一致的注册方式）。
  * 仅使用 node:path / node:fs/promises / node:os / node:crypto 与既有 src 模块
@@ -34,6 +39,10 @@ import { probeDevice, deviceProfileText } from './device.js';
 import { pickOverrides } from './plugin-config.js';
 import { initFileSettings, syncSettingEnv, setSetting, readSnapshot } from './settings-file.js';
 import { openImageSource, outDirBase } from './host-io.js';
+// v1.0.0 多模态端点泛化：画像判定（是否需要 key、当前画像 id）
+import { PROFILES, resolveProfileId } from './api-profile.js';
+// v1.0.0 批量识别（目录级流水线）
+import { runBatch } from './batch.js';
 
 /** 插件名（Cordis 装载时作为插件行标识）。 */
 export const name = 'vision-exp-tile';
@@ -169,6 +178,11 @@ function mediaTypeForExt(ext) {
  * @returns {Promise<string|undefined>} 解析到的 API key；环境变量与凭据文件均无时返回 undefined。
  */
 async function resolveApiKey(cfg) {
+  // 0. v1.0.0：设置页/配置文件**直填**的 api_key 优先（本地端点可留空 → 落到下面 env/凭据，
+  //    再都拿不到时由画像决定是否算错）。
+  const direct = String(cfg.apiKey ?? '').trim();
+  if (direct.length > 0) return direct;
+
   const keyEnv = cfg.apiKeyEnv;
 
   // 1. 环境变量优先；非空trim 值即视为有效。
@@ -188,6 +202,64 @@ async function resolveApiKey(cfg) {
   } catch {
     // 文件不存在、权限/解析异常等：无法兜底，返回 undefined。
     return undefined;
+  }
+}
+
+/**
+ * 安全解析 JSON 文本配置（v1.0.0：extra_headers / extra_body）。
+ * 纪律：**配置写错不能让插件起不来** → 解析失败只记一条 debug 并忽略该项。
+ * @param {string} text - 用户填写的 JSON 文本（空串 = 未设置）
+ * @param {string} label - 字段名（用于提示）
+ * @param {object} [ctx] - Cordis 上下文（可选，用于 debug 日志）
+ * @returns {object|undefined} 解析后的对象；空/非法返回 undefined
+ */
+function parseJsonSafe(text, label, ctx) {
+  const s = String(text ?? '').trim();
+  if (s.length === 0) return undefined;
+  try {
+    const v = JSON.parse(s);
+    if (v && typeof v === 'object' && !Array.isArray(v)) return v;
+    ctx?.logger?.warn?.(`[vision-exp-tile] ${label} 必须是 JSON 对象，已忽略`);
+    return undefined;
+  } catch (error) {
+    ctx?.logger?.warn?.(`[vision-exp-tile] ${label} 不是合法 JSON，已忽略：${String(error)}`);
+    return undefined;
+  }
+}
+
+/**
+ * 组装端点画像配置（v1.0.0）：把插件配置里的端点相关字段收拢成一个对象，
+ * 交给 vision-client / pipeline（它们只认画像，不再各自判断厂商差异）。
+ * @param {object} cfg - 归一化配置
+ * @param {object} [ctx] - Cordis 上下文（JSON 解析告警用）
+ * @returns {object} apiCfg
+ */
+function apiCfgOf(cfg, ctx) {
+  return {
+    provider: cfg.provider ?? 'auto',
+    baseURL: cfg.baseURL,
+    model: cfg.model,
+    apiPath: cfg.apiPath,
+    extraHeaders: parseJsonSafe(cfg.extraHeaders, 'extra_headers', ctx),
+    extraBody: parseJsonSafe(cfg.extraBody, 'extra_body', ctx),
+    imageDetail: cfg.imageDetail ?? 'auto',
+    thinkingMode: cfg.thinkingMode ?? 'auto',
+    maxTokensField: cfg.maxTokensField ?? 'auto'
+  };
+}
+
+/**
+ * 当前画像是否必须提供 API key。
+ * 本地端点（vLLM / Ollama / LM Studio）常态无鉴权 → 画像 requiresKey=false 时放行。
+ * @param {object} cfg - 归一化配置
+ * @returns {boolean} true=缺 key 应当报错
+ */
+function apiKeyRequired(cfg) {
+  try {
+    const id = resolveProfileId(cfg.provider, cfg.baseURL);
+    return PROFILES[id]?.requiresKey !== false;
+  } catch {
+    return true; // 判定失败按保守处理（报错比静默失败好）
   }
 }
 
@@ -633,10 +705,12 @@ export function createRecognizeTool(ctx, cfg) {
       if (exec.signal?.aborted) throw new Error(`${tool}: 已取消`);
       if (cfg.debug) debugLog(ctx, `${tool} 开始识别：model=${cfg.model} mode=${cfg.mode} max_tokens=${cfg.maxTokens} ocr_engine=${cfg.ocr_engine}`);
 
-      // 1. 解析 API key（环境变量优先，本机凭据文件兜底；均无则给出明确错误）。
+      // 1. 解析 API key（设置页直填 > 环境变量 > 本机凭据文件）。
       const apiKey = await resolveApiKey(cfg);
-      if (!apiKey) {
-        throw new Error(`${tool}: 未找到 API key（环境变量 ${cfg.apiKeyEnv}）——请在环境变量中配置并重启 DSH`);
+      const apiCfg = apiCfgOf(cfg, ctx);
+      // v1.0.0：本地端点画像（vLLM/Ollama/LM Studio）允许无 key；DeepSeek 等缺 key 仍明确报错。
+      if (!apiKey && apiKeyRequired(cfg)) {
+        throw new Error(`${tool}: 未找到 API key（可在设置页直接填 api_key，或配置环境变量 ${cfg.apiKeyEnv} 并重启 DSH）`);
       }
 
       // 2. 读取 + 切图。
@@ -673,6 +747,7 @@ export function createRecognizeTool(ctx, cfg) {
         }
         const preview = await previewImage({
           apiKey,
+          apiCfg, // v1.0.0：端点画像（路径/认证/专有字段开关）
           baseURL: cfg.baseURL,
           model: cfg.model,
           buffer: Buffer.from(img.bytes),
@@ -711,6 +786,7 @@ export function createRecognizeTool(ctx, cfg) {
           : 'default';
         const p = await runPipeline({
           apiKey,
+          apiCfg, // v1.0.0：端点画像
           baseURL: cfg.baseURL,
           model: cfg.model,
           buf: Buffer.from(img.bytes),
@@ -766,6 +842,7 @@ export function createRecognizeTool(ctx, cfg) {
       // 5. 调用识别引擎（内部按块数选择单请求/分层聚合；不代为统计 token/费用）。
       const result = await recognize({
         apiKey,
+        apiCfg, // v1.0.0：端点画像
         baseURL: cfg.baseURL,
         model: cfg.model,
         width: img.width,
@@ -780,7 +857,9 @@ export function createRecognizeTool(ctx, cfg) {
         signal: exec.signal,
         timeoutMs: cfg.timeoutMs,
         blockSize: img.blockSize,
-        overlap: img.overlap
+        overlap: img.overlap,
+        // v1.0.0 性能改造：分层聚合的**组间并发**上限（0/未设 = 按算力预算自动）
+        apiConcurrency: Number(cfg.apiConcurrency) > 0 ? Number(cfg.apiConcurrency) : undefined
       });
 
       // 6. 组装输出块清单（不带 buffer）：splits=false 为单块；否则按切块顺序。
@@ -946,11 +1025,14 @@ export function createRegionCropTool(ctx, cfg) {
       let description;
       if (recognizeFlag) {
         const apiKey = await resolveApiKey(cfg);
-        if (!apiKey) {
-          throw new Error(`${tool}: 识别需要 API key（环境变量 ${cfg.apiKeyEnv}）——请配置后重试，或设 recognize=false 仅落盘`);
+        const apiCfg = apiCfgOf(cfg, ctx);
+        // v1.0.0：本地端点无 key 也允许（画像 requiresKey=false）
+        if (!apiKey && apiKeyRequired(cfg)) {
+          throw new Error(`${tool}: 识别需要 API key（可在设置页填 api_key，或配置环境变量 ${cfg.apiKeyEnv}）——或设 recognize=false 仅落盘`);
         }
         const res = await recognizeRegion({
           apiKey,
+          apiCfg,
           baseURL: cfg.baseURL,
           model: cfg.model,
           buffer: cropped.buffer,
@@ -989,11 +1071,189 @@ export function createRegionCropTool(ctx, cfg) {
  * @param {object} liveCfg - 实时配置 Proxy。
  * @returns {Array<() => void>} 各工具注册返回的 disposer。
  */
+/* ------------------------------------------------------------------ */
+/* 工具 4：vision_batch_recognize（批量/目录级识别流水线，v1.0.0 大更新①） */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 把用户给的目录路径解析为可用的绝对路径。
+ * 批量场景要「列目录」，而宿主只对**单个文件**提供 cwd 委托读取，
+ * 因此这里：~ 展开 → 绝对路径直接用 → 相对路径按进程 cwd 解析（并在返回里回显绝对路径，便于用户核对）。
+ * @param {string} p - 用户输入路径
+ * @returns {string} 绝对路径
+ */
+function resolveBatchPath(p) {
+  const raw = String(p ?? '').trim();
+  if (raw.startsWith('~')) return join(homedir(), raw.slice(1).replace(/^[\\/]+/, ''));
+  return pathResolve(process.cwd(), raw);
+}
+
+/**
+ * 创建「批量识别」工具（v1.0.0）。
+ *
+ * 与单图工具的分工：单图工具一次一张、失败即抛错；本工具面向**目录**，
+ * 逐图识别、单图失败不中断、进度落 index.jsonl、**可中断可续跑**，并产出报告三件套。
+ *
+ * @param {object} ctx - Cordis 上下文。
+ * @param {object} liveCfg - 实时配置 Proxy。
+ * @returns {object} 工具对象
+ */
+export function createBatchTool(ctx, cfg) {
+  const tool = 'vision_batch_recognize';
+  return {
+    name: tool,
+    description: [
+      '批量识别一个目录下的所有图片（目录级流水线）：逐图调用同一套智能识图流程，产出可续跑的报告。',
+      '参数：input_dir（必填，图片所在目录，建议绝对路径）；pattern（扩展名过滤，如 "*.png;*.jpg"，默认内建常见图片格式）；recursive（是否含子目录，默认 false）。',
+      'question（识别侧重点，可选）；strategy（pipeline=插件全自动，默认；full=整图网格切块识别）。',
+      'limit（本次最多处理多少张，默认 5；**到量即停**，剩余留给下次调用）；concurrency（图级并发 1..4，默认按本机算力自动）；',
+      'resume（默认 true：跳过已完成项、重试失败项）；time_budget_ms（本次时间预算，默认 240000=4 分钟，到点收工）；',
+      'batch_id（续跑到已有批次：把上次返回的 batchId 传回来）；out_dir（报告根目录，默认 = input_dir）。',
+      '产出：<out_dir>/<batchId>/ 下有 index.jsonl（进度）、report.md（人读汇总）、report-full.md（全文）、report.json（机读）与每张图的明细子目录。',
+      '续跑语义：重复调用同一 input_dir + 同一 batch_id 只补未完成项；换新批次则重新开始。',
+      '注意：本工具不适合需要与用户来回确认的 smart 策略；识别失败会逐条记录，不会中断整批。'
+    ].join(' '),
+    parameters: {
+      type: 'object',
+      additionalProperties: true,
+      properties: {
+        input_dir: { type: 'string', description: '图片所在目录（建议绝对路径）。' },
+        pattern: { type: 'string', description: '扩展名过滤，如 "*.png;*.jpg"；默认 png/jpg/jpeg/webp/gif/bmp。' },
+        recursive: { type: 'boolean', description: '是否递归子目录，默认 false。' },
+        question: { type: 'string', description: '识别侧重点（可选）。' },
+        strategy: { type: 'string', enum: ['pipeline', 'full'], description: 'pipeline=全自动（默认）；full=整图网格切块。' },
+        limit: { type: 'integer', description: '本次最多处理多少张（1..500，默认 5）。' },
+        concurrency: { type: 'integer', description: '图级并发（1..4，默认按本机算力自动）。' },
+        resume: { type: 'boolean', description: '跳过已完成项并重试失败项，默认 true。' },
+        time_budget_ms: { type: 'integer', description: '本次时间预算（毫秒，5000..1800000，默认 240000）。' },
+        batch_id: { type: 'string', description: '续跑到已有批次（传入上次返回的 batchId）。' },
+        out_dir: { type: 'string', description: '报告根目录，默认 = input_dir。' }
+      },
+      required: ['input_dir']
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          batchId: { type: 'string' },
+          batchDir: { type: 'string' },
+          total: { type: 'integer' },
+          processed: { type: 'integer' },
+          ok: { type: 'integer' },
+          failed: { type: 'integer' },
+          remaining: { type: 'integer' },
+          items: { type: 'array', items: { type: 'object', additionalProperties: true } },
+          reports: {
+            type: 'object',
+            additionalProperties: true,
+            properties: { report: { type: 'string' }, full: { type: 'string' }, json: { type: 'string' } }
+          }
+        },
+        required: ['batchId', 'batchDir', 'total', 'processed', 'ok', 'failed', 'remaining']
+      },
+      render: (_args, value) => {
+        const lines = [];
+        lines.push(`# 批量识别 · ${value.batchId}`);
+        lines.push('');
+        lines.push(`图片总数：${value.total}（成功 ${value.ok} / 失败 ${value.failed} / 待处理 ${value.remaining}）`);
+        lines.push(`本次处理：${value.processed} 张，用时 ${Math.round((value.elapsedMs ?? 0) / 1000)}s，图级并发 ${value.concurrency}`);
+        if (value.cacheHits) lines.push(`缓存命中：${value.cacheHits} 张（未重复消耗 API）`);
+        if (value.duplicates) lines.push(`批内重复图片：${value.duplicates} 张（复用同批结果）`);
+        lines.push(`批次目录：${value.batchDir}`);
+        lines.push(`报告：${value.reports?.report ?? '(未生成)'}`);
+        if (value.reports?.full) lines.push(`全文：${value.reports.full}`);
+        const failedItems = (value.items ?? []).filter((x) => x.status === 'failed');
+        if (failedItems.length > 0) {
+          lines.push('', '失败清单：');
+          for (const f of failedItems.slice(0, 10)) lines.push(`  - ${f.rel}：${String(f.error ?? '').slice(0, 120)}`);
+        }
+        if (value.remaining > 0) {
+          lines.push('', `还有 ${value.remaining} 张未处理 —— 可再次调用本工具（同一 input_dir + batch_id=${value.batchId}）继续。`);
+        }
+        if (value.answer) lines.push('', '──────── 首页结果预览 ────────', value.answer);
+        return [{ type: 'text', text: lines.join('\n') }];
+      }
+    },
+    isConcurrencySafe: () => true,
+    presentCall: (args) => ({
+      card: 'generic',
+      title: `${tool}：${String(args.input_dir ?? '')}`,
+      kind: 'read',
+      locations: [{ path: String(args.input_dir ?? '') }]
+    }),
+    async execute(args, exec) {
+      if (exec.signal?.aborted) throw new Error(`${tool}: 已取消`);
+      const inputDirRaw = String(args.input_dir ?? '').trim();
+      if (inputDirRaw.length === 0) throw new Error(`${tool}: input_dir 必须是非空字符串`);
+      const inputDir = resolveBatchPath(inputDirRaw);
+
+      const apiKey = await resolveApiKey(cfg);
+      const apiCfg = apiCfgOf(cfg, ctx);
+      if (!apiKey && apiKeyRequired(cfg)) {
+        throw new Error(`${tool}: 未找到 API key（可在设置页直接填 api_key，或配置环境变量 ${cfg.apiKeyEnv} 并重启 DSH）`);
+      }
+
+      const strategyRaw = args.strategy === undefined ? 'pipeline' : String(args.strategy);
+      if (!['pipeline', 'full'].includes(strategyRaw)) {
+        throw new Error(`${tool}: strategy 仅支持 pipeline/full（smart 需要会话模型逐步编排，不适合批处理）`);
+      }
+      if (cfg.debug) debugLog(ctx, `${tool} 批量识别开始：dir=${inputDir} strategy=${strategyRaw} limit=${args.limit ?? 5}`);
+
+      const outDirRaw = String(args.out_dir ?? '').trim();
+      const res = await runBatch({
+        inputDir,
+        outDir: outDirRaw.length > 0 ? resolveBatchPath(outDirRaw) : undefined,
+        batchId: String(args.batch_id ?? '').trim() || undefined,
+        pattern: args.pattern === undefined ? undefined : String(args.pattern),
+        recursive: readBool(args.recursive, false, 'recursive', tool),
+        question: String(args.question ?? '').trim(),
+        strategy: strategyRaw,
+        limit: readInt(args.limit, 5, 1, 500, 'limit', tool),
+        concurrency: args.concurrency === undefined ? undefined : readInt(args.concurrency, 1, 1, 4, 'concurrency', tool),
+        resume: readBool(args.resume, true, 'resume', tool),
+        timeBudgetMs: readInt(args.time_budget_ms, 240000, 5000, 1800000, 'time_budget_ms', tool),
+        apiKey,
+        signal: exec.signal,
+        cfg: {
+          baseURL: cfg.baseURL,
+          model: cfg.model,
+          apiCfg, // 端点画像（批量内部逐图调用识别时使用）
+          maxTokens: cfg.maxTokens,
+          blockSize: cfg.blockSize,
+          overlap: cfg.overlap,
+          cutThreshold: cfg.cutThreshold,
+          groupSize: cfg.groupSize,
+          format: cfg.format,
+          quality: cfg.quality,
+          rotate: cfg.rotate,
+          mode: cfg.mode,
+          json: cfg.json,
+          timeoutMs: cfg.timeoutMs,
+          performanceTier: cfg.performanceTier,
+          ocrPool: cfg.ocrPool,
+          ocrEngine: 'auto',
+          preprocess: String(cfg.preprocess ?? 'auto') === 'off' ? 'off' : 'auto',
+          apiConcurrency: Number(cfg.apiConcurrency) > 0 ? Number(cfg.apiConcurrency) : undefined
+        }
+      });
+      return res;
+    }
+  };
+}
+
+/**
+ * 注册全部工具（v1.0.0 起为四个）。
+ * @param {object} ctx - Cordis 上下文（提供 ctx.tools.register）。
+ * @param {object} liveCfg - 实时配置 Proxy。
+ * @returns {Array<() => void>} 各工具注册返回的 disposer。
+ */
 function registerToolset(ctx, liveCfg) {
   return [
     ctx.tools.register(createSplitTool(ctx, liveCfg)),
     ctx.tools.register(createRecognizeTool(ctx, liveCfg)),
-    ctx.tools.register(createRegionCropTool(ctx, liveCfg))
+    ctx.tools.register(createRegionCropTool(ctx, liveCfg)),
+    ctx.tools.register(createBatchTool(ctx, liveCfg))
   ];
 }
 

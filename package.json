@@ -1,7 +1,7 @@
 {
   "name": "vision-exp-tile",
-  "version": "0.5.0",
-  "description": "为 deepseek-v4-flash-vision-exp 量身定制的大图智能识图插件：整图预检 → 本地 OCR+像素网格（文字）+ 兴趣点按比例切块（最长边 800）→ 汇总；保留全图 800x800 网格切块模式。不代为统计/不显示 token 与费用，实际计费以 DeepSeek 官方 API 平台账单为准。v0.5.0：适配 DSH 0.2.0（Cordis bundle 形态 + 保留 dsh-std 标准形态备用）；Web 设置页回归并覆盖全部 37 项配置；取消 picturereader 适配，完全独立运行；设置支持 profile 设置页 / 配置文件 / 环境变量三级来源。",
+  "version": "1.0.0",
+  "description": "为 deepseek-v4-flash-vision-exp 量身定制的大图智能识图插件：整图预检 → 本地 OCR+像素网格（文字）+ 兴趣点按比例切块（最长边 800）→ 汇总；保留全图 800x800 网格切块模式。不代为统计/不显示 token 与费用，实际计费以 API 平台账单为准。v1.0.0：新增目录级批量识别工具 vision_batch_recognize（报告三件套 + 断点续跑）；多模态端点泛化（可接任意 OpenAI 兼容端点与本地视觉模型）；性能改造（组间并发 + 视觉结果缓存 + 全局 API 闸门）。",
   "type": "module",
   "main": "src/index.js",
   "exports": {
@@ -22,7 +22,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test tests/client.test.js tests/client-bundle.test.js tests/device.test.js tests/engine.test.js tests/gpu.test.js tests/grid.test.js tests/handwrite.test.js tests/host-io.test.js tests/ocr-pool.test.js tests/plugin-config.test.js tests/preprocess.test.js tests/prompts.test.js tests/region.test.js tests/settings.test.js tests/settings-file.test.js tests/suite-env.test.js tests/temp-cleanup.test.js tests/v014.test.js",
+    "test": "node --test tests/api-profile.test.js tests/batch-e2e.test.js tests/batch-report.test.js tests/batch.test.js tests/client.test.js tests/client-bundle.test.js tests/concurrency.test.js tests/device.test.js tests/engine.test.js tests/gpu.test.js tests/grid.test.js tests/handwrite.test.js tests/host-io.test.js tests/ocr-pool.test.js tests/pipeline-size.test.js tests/plugin-config.test.js tests/preprocess.test.js tests/prompts.test.js tests/region.test.js tests/result-cache.test.js tests/settings.test.js tests/settings-file.test.js tests/smart.test.js tests/suite-env.test.js tests/temp-cleanup.test.js tests/v014.test.js tests/vision-cache.test.js tests/vision-endpoint.test.js",
     "selfcheck": "node scripts/self-check.mjs",
     "smoke": "node scripts/std-facet-smoke.mjs && node scripts/cordis-entry-smoke.mjs && node scripts/client-settings-smoke.mjs",
     "smoke:std": "node scripts/std-facet-smoke.mjs",

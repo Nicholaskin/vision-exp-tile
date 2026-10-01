@@ -83,10 +83,24 @@ test('client.js 自绘控件（不依赖 UI 包组件）：注入样式 + 原生
 
 test('client.js 的字段键全部是 snake_case（与配置文件 / Config 一致）', () => {
   const keys = [...src.matchAll(/\{\s*key:\s*'([a-z0-9_]+)'/g)].map((m) => m[1]);
-  assert.ok(keys.length >= 35, `字段数应 >= 35（全量覆盖），实际 ${keys.length}`);
+  // v1.0.0：37 既有 + 12 新增 = 49（阈值与冒烟脚本 client-settings-smoke.mjs 保持一致）
+  assert.ok(keys.length >= 49, `字段数应 >= 49（全量覆盖），实际 ${keys.length}`);
   for (const key of keys) {
     assert.match(key, /^[a-z][a-z0-9_]*$/, `字段键应为 snake_case：${key}`);
   }
+});
+
+test('client.js：v1.0.0 新增 12 项全部出现在表单，且 API 密钥用密码型控件', () => {
+  const keys = [...src.matchAll(/\{\s*key:\s*'([a-z0-9_]+)'/g)].map((m) => m[1]);
+  const added = [
+    'provider', 'api_path', 'api_key', 'extra_headers', 'extra_body',
+    'image_detail', 'thinking_mode', 'max_tokens_field',
+    'api_concurrency', 'result_cache', 'result_cache_ttl_hours', 'result_cache_max_mb'
+  ];
+  assert.deepEqual(added.filter((k) => !keys.includes(k)), [], '新增项未进设置页表单');
+  // 敏感项：api_key 必须渲染为 password 控件
+  assert.match(src, /key:\s*'api_key'[^}]*type:\s*'password'/);
+  assert.match(src, /type:\s*field\.type === 'number' \? 'number' : \(field\.type === 'password' \? 'password' : 'text'\)/);
 });
 
 test('package.json 声明 dsh.client（platform=web）与 ./client 导出', () => {

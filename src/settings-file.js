@@ -37,7 +37,11 @@ const TARGET_KEYS = [
   'gpu_provider', 'gpu_python', 'gpu_device', 'gpu_fallback',
   'device_benchmark', 'device_power_probe', 'platform_fallback', 'slow_net_adapt',
   'performance_tier', 'ocr_pool_timeout_ms', 'test_timeout_factor',
-  'test_skip_timing', 'device_profile', 'debug'
+  'test_skip_timing', 'device_profile', 'debug',
+  // v1.0.0 大更新③④：端点泛化 + 性能与结果缓存（新增 12 项，旧 settings.yaml 分区亦可迁移）
+  'provider', 'api_path', 'api_key', 'extra_headers', 'extra_body',
+  'image_detail', 'thinking_mode', 'max_tokens_field',
+  'api_concurrency', 'result_cache', 'result_cache_ttl_hours', 'result_cache_max_mb'
 ];
 
 /**

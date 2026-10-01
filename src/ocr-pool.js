@@ -19,7 +19,6 @@
 
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { cpus } from 'node:os';
 import { join, dirname } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

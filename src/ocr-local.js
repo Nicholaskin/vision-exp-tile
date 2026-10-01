@@ -129,8 +129,6 @@ function venvPython(venvDir) {
 let _venvHomeOverride = null;
 /** @private 单测用：设置 venv 根目录覆盖。 */
 export function _setVenvHomeForTest(h) { _venvHomeOverride = h; }
-/** @private 单测用：清除 venv 根目录覆盖。 */
-export function _clearVenvHomeForTest() { _venvHomeOverride = null; }
 /** venv 根目录（缺省 = homedir）；可被 _setVenvHomeForTest 覆盖。 */
 function venvHome() { return _venvHomeOverride ?? homedir(); }
 

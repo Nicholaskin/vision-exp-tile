@@ -6,22 +6,29 @@
 
 各位随意取用：有问题可以提交 **Issue**（如果能自己改的话就更好了——你提交了 Issue，我也只能给 DeepSeek 看然后让他自己改；我本人尝试过多次，均未学会任何写代码的能力，也是乘上 **AI** 的东风，让我有了开发插件的能力）。
 
-> **本次更新（v0.5.0 正式版）**，内容：
-> ① **适配 DSH 0.2.0**：恢复 `dsh.bundle.patch`（→ `cordis.patch.yml`，`main` 指回 `src/index.js`）——0.2.0 的插件装载机制仍是 Cordis bundle，插件现可在其上被识别与装载；同时保留 dsh-std 标准形态（`dsh-plugin.json` + `std-facet.js`）备用。
-> ② **Web 设置页回归**：DSH 0.2.0 移除了旧的 `settingsScope` 客户端接口，旧设置页无法再用；本版按新机制（插件配置的 volatile 字段 + 客户端 `configForms`）重写设置页——在 Web 侧栏 **「插件」页**里出现「**图像分块识别**」设置卡片，**覆盖全部 37 项配置**，按六组呈现：识别与接口 / 切块与输出 / 性能与 OCR 池 / GPU 加速 / 设备适配 / 调试与测试；**改完点「保存」即时生效**（可「全部恢复默认」）。
-> ③ **配置来源优先级**：设置页填写值 > 配置文件 `~/.dsh/vision-exp-tile.json` > 环境变量 > 内置默认（留空即回落下一层，三种方式可混用）。
-> ④ **取消 picturereader 适配**：移除共存探测 / 分工引导 / 配置继承 / venv 复用，插件**完全独立运行**。
-> ⑤ **验证**：`npm test` **176/176**；三套冒烟全过（标准入口 15 / Cordis 入口 20 / 设置页 19）；真机实测（DSH 0.2.0-rc.2）：三工具可用、切块与识别端到端通过、设置页可编辑保存并落盘。
+> **本次更新（v1.0.0 正式版 · 大更新）**，内容：
+> ① **批量/目录级识别流水线**：新工具 `vision_batch_recognize` —— 一次处理一个目录，逐图识别并产出
+> **报告三件套**（`report.md` / `report-full.md` / `report.json`）；**可中断可续跑**（进度落 `index.jsonl`）、
+> **单图失败不中断整批**、`limit` + 时间预算到点即停（返回剩余张数供继续调用）。
+> ② **多模态端点泛化**：不再写死 DeepSeek —— 按「端点画像」发请求，可接任意 OpenAI 兼容端点与本地视觉模型
+> （vLLM / Ollama / LM Studio，**允许无 API key**）；默认只发最小通用集合，专有字段按画像开关，
+> 并自带三类自动回退（404 切 `/v1`、token 字段不被支持则换名、字段被拒则剔除）。
+> ③ **性能改造**：分层聚合**组间并发**、**视觉结果缓存**（同图同参不再重复请求，只缓存成功结果）、
+> **全局 API 闸门**（防并发叠乘打爆端点）、按核数的算力预算表。
+> ④ **设置页扩至 49 项**（新增端点与缓存相关 12 项，全部可在 Web 设置页编辑）。
+> ⑤ 修复一处**静默错数据**：批量链路拿不到图片尺寸时曾让坐标全被钳成 0，现自动探测尺寸。
+> ⑥ **验证**：`npm test` **286/286**；三套冒烟全过；真机实测（批量往返、续跑、缓存命中）见 CHANGELOG 的 v1.0.0 段。
 >
-> **开发过程版（v0.5.0-rc.1 ~ rc.4，仅存档）**：rc.1 生态化改造（`dsh-plugin.json` + `std-facet.js`、设置文件化）；rc.2 取消 picturereader 适配；rc.3 双形态（跟随 0.2.0 装载机制）；rc.4 设置界面回归（新机制重写 + 37 项全覆盖）。各版详情见 CHANGELOG。
+> **上一版（v0.5.0 正式版）**：适配 DSH 0.2.0（Cordis bundle 双形态）、Web 设置页回归（37 项）、
+> 配置来源三级、取消 picturereader 适配、完全独立运行。历史各版详情见 CHANGELOG。
 
 # vision-exp-tile ◆ 为 deepseek-v4-flash-vision-exp 定制的大图智能识图插件
 
-> **简介**：DSH（DeepSeek Harness）插件——大图智能识别：整图预检 → 本地 OCR + 像素网格转录文字 → 兴趣点区域按比例切块（最长边 800）让视觉模型精读 → 自动汇总；支持模型编排（smart）/ 全自动（pipeline）/ 全图网格（full）三种策略。为 deepseek-v4-flash-vision-exp 量身定制，识别大图"看不清"的最后一公里。
+> **简介**：DSH（DeepSeek Harness）插件——大图智能识别：整图预检 → 本地 OCR + 像素网格转录文字 → 兴趣点区域按比例切块（最长边 800）让视觉模型精读 → 自动汇总；支持模型编排（smart）/ 全自动（pipeline）/ 全图网格（full）三种策略，并可从 v1.0.0 起**批量处理整个目录**。默认为 deepseek-v4-flash-vision-exp 定制，也可接入任意 OpenAI 兼容视觉端点。识别大图"看不清"的最后一公里。
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org)
-[![version](https://img.shields.io/badge/vision--exp--tile-v0.5.0--rc.4-orange.svg)](#)
+[![version](https://img.shields.io/badge/vision--exp--tile-v1.0.0-orange.svg)](#)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-plugin-purple.svg)](#)
 
 > 独立 DSH 插件：**零依赖任何第三方 DSH 插件**（picturereader 等均未使用，仅用纯官方 DSH 服务 + 可选开源 OCR 环境）。把大图切成 **800×800 无损小块**（官方缩放规则的"甜蜜点"：块在模型侧**不被降采样**、每块**≤384 token**），携带**坐标标注 + 分块聚合逻辑**直接调用 DeepSeek 视觉 API 完成识别与聚合，返回结构化答案（**不代为统计/不显示 token 与费用，实际计费以 DeepSeek 官方 API 平台账单为准**）。
@@ -134,7 +141,28 @@ dsh web
 - 参数：`file_path`（必填）、`rect`（必填 `[x0,y0,x1,y1]`，支持 0..1 相对或像素坐标自动识别）、`rotate`、`max_edge`（默认 800，**最长边 800 保比例**（4:3→800×600）；`0`=1:1 不缩放供本地 OCR）、`recognize`（默认 true=视觉 API 识别该区域；false=仅落盘 PNG，供本地 OCR 工具处理）、`question`、`out_dir`（默认系统临时目录）；
 - 返回：区域图路径、输出尺寸、原图裁剪矩形（像素）、（recognize=true 时）区域描述。
 
-### 4. 配置项（插件级）
+### 4. `vision_batch_recognize` —— 批量识别目录（v1.0.0 新增）
+
+```json
+{
+  "input_dir": "D:\\DSH-Files-v2\\00-收件箱\\图像识别输入",
+  "limit": 5,
+  "question": "逐张转录文字并概述内容"
+}
+```
+
+一次处理一个目录，逐图跑与单图工具相同的智能识图链路（默认 `strategy=pipeline`）：
+
+- **可续跑**：进度写在 `<out_dir>/<批次号>/index.jsonl`；再次调用（同一 `input_dir` + 上次返回的 `batch_id`）只补未完成项，并自动重试失败项；
+- **失败隔离**：单张图失败只记 `failed` 并继续下一张，不会让整批报废（报告里有失败清单）；
+- **到量即停**：`limit`（默认 5 张）与 `time_budget_ms`（默认 4 分钟）保证单次调用不超时，返回里会提示还剩多少张；
+- **报告三件套**：`report.md`（人读汇总 + 失败清单）、`report-full.md`（每图完整答案）、`report.json`（机读）；
+- **省钱**：批内内容相同的图片只识别一次（报告标注"内容相同，已复用"）；命中结果缓存的图不再发请求。
+
+参数：`input_dir`（必填）、`pattern`（扩展名过滤）、`recursive`、`question`、`strategy`（pipeline/full）、
+`limit`、`concurrency`（图级并发 1..4，默认按本机算力自动）、`resume`、`time_budget_ms`、`batch_id`、`out_dir`。
+
+### 5. 配置项（插件级）
 
 | 配置 | 默认 | 说明 |
 |---|---|---|
@@ -154,6 +182,48 @@ dsh web
 | `devicePowerProbe` | `true` | 电池/低功耗探测（B）；false=不探测（不应用省电推荐） |
 | `platformFallback` | `auto` | ARM/WSL/容器平台降级（C）：auto=按环境自动降级 / on=强制降级 / off=关闭 |
 | `slowNetAdapt` | `true` | 慢网适配（D）；false=slow 档不降兴趣点并发/不放大 API 超时 |
+
+**v1.0.0 新增配置项**
+
+| 配置 | 默认 | 说明 |
+|---|---|---|
+| `provider` | `auto` | 端点画像：auto/deepseek/openai/minimal；auto=按 `base_url` 特征自动判定 |
+| `apiKey` | 空 | **直接填写** API key（优先级高于环境变量；本地端点可留空） |
+| `apiPath` | 空 | 路径覆盖（默认 `/chat/completions`；可带 query，如 Azure 的 `?api-version=…`） |
+| `extraHeaders` | 空 | JSON 文本，附加/覆盖请求头（如 `{"api-key":"…"}`） |
+| `extraBody` | 空 | JSON 文本，附加请求体字段（如 `{"temperature":0.2}`） |
+| `imageDetail` | `auto` | detail 下发策略：auto/off/low/high/original（非 DeepSeek 画像会把 original 降级为 high） |
+| `thinkingMode` | `auto` | thinking 下发策略：auto=仅 DeepSeek 画像下发 / on / off |
+| `maxTokensField` | `auto` | token 上限字段：auto/max_tokens/max_completion_tokens（遇到 400 会自动换字段重试一次） |
+| `apiConcurrency` | `0`（自动） | 分层聚合的组间并发（1..4）；0=按本机算力预算 |
+| `resultCache` | `true` | 视觉结果缓存：相同图片 + 相同参数直接复用（省一次付费请求） |
+| `resultCacheTtlHours` | `168` | 缓存有效期（小时，1..8760） |
+| `resultCacheMaxMb` | `512` | 缓存体积上限（MB，超限按最旧优先清理） |
+
+> 缓存目录：`~/.vision-exp-tile-result-cache`（环境变量 `DSH_RESULT_CACHE_DIR` 可改）；
+> 只缓存**成功**结果，解析失败/空正文一律不缓存（避免把错误固化）。
+
+### 6. 接入其他视觉端点（v1.0.0）
+
+本插件从「只认 DeepSeek」升级为「按**端点画像**发请求」，可接任意 OpenAI 兼容的视觉端点：
+
+| 端点 | `baseURL` 示例 | 备注 |
+|---|---|---|
+| DeepSeek（默认） | `https://api.deepseek.com` | 无需 `/v1`；保留原 `detail=original` 与 thinking 行为 |
+| 本地 vLLM | `http://localhost:8000/v1` | 通常无需 API key |
+| Ollama | `http://localhost:11434/v1` | 需已 `ollama pull` 视觉模型 |
+| LM Studio | `http://localhost:1234/v1` | 通常无需 API key |
+| 其他厂商 | 按其文档给 OpenAI 兼容地址 | 专有字段（thinking/reasoning_effort 等）默认**不发**，避免 400 |
+
+实现纪律（踩过坑的结论）：
+
+- 默认只发**最小通用集合**（`model` / `messages` / `max_tokens` / `stream:false`），
+  `thinking` / `detail` / `reasoning_effort` 等厂商专有字段**按画像显式开启**——
+  已确证智谱、MiniMax 等端点对某些取值「发了就 400」；
+- 路径不猜 `/v1`：只在 404/405 时切一次 `/v1` 前缀重试，且用户显式给了 `apiPath` 就不猜；
+- `max_tokens` 被拒（400 且错误里提到 `max_completion_tokens`）时自动换字段重试一次；
+- **HTTP 200 也可能是业务失败**：响应解析会检查 `base_resp.status_code` 等业务错误字段，
+  不会把「空正文」当成成功。
 
 ## 隐私与数据说明
 

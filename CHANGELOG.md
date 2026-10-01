@@ -1,7 +1,77 @@
 # 更新日志（Release Changelog）
 
-> 全部版本记录（v0.1.0 → v0.5.0），最新在上；本文件 = GitHub Release 的 changelog 栏（由 .github/workflows/release.yml 自动读取）。
+> 全部版本记录（v0.1.0 → v1.0.0），最新在上；本文件 = GitHub Release 的 changelog 栏（由 .github/workflows/release.yml 自动读取）。
 > 注：README 只展示最新一期更新内容（使用者视角）；本文件保留每期完整记录（含历史）。
+
+## v1.0.0（正式版 · 大更新：批量识别 · 端点泛化 · 性能改造 · 2026-10-02）
+
+**主题：从「一次一张图的工具」升级为「可跑的识别流水线」，并解除对单一端点的绑定。**
+
+### 1. 批量/目录级识别流水线（新工具 `vision_batch_recognize`）
+
+- 一次处理一个目录：逐图跑与单图工具同一套识别链路（默认 `strategy=pipeline`），
+  产出 `report.md`（人读汇总 + 失败清单）/ `report-full.md`（每图全文）/ `report.json`（机读）三件套。
+- **可续跑**：进度写 `index.jsonl`，重复调用（同一 `input_dir` + `batch_id`）只补未完成项、自动重试失败项；
+  `resume=false` 可强制全量重跑。
+- **失败隔离**：单图失败只记 `failed` 并继续，不会让整批报废。
+- **可控耗时不超时**：`limit`（默认 5 张）与 `time_budget_ms`（默认 4 分钟）到点即收工，返回剩余张数供继续调用。
+- **省钱**：批内相同内容的图片只识别一次（报告标注"内容相同，已复用"）；命中结果缓存的图不再发请求。
+
+### 2. 多模态端点泛化（不再写死 DeepSeek）
+
+- 新增端点画像层 `src/api-profile.js`：路径 / 认证头 / detail / thinking / token 字段名 / 附加头与 body
+  全部由画像描述，`vision-client` 只按画像发请求。
+- 可接任意 OpenAI 兼容端点：本地 vLLM / Ollama / LM Studio（**允许无 API key**）、以及各厂商兼容端点；
+  配置示范见 README「接入其他视觉端点」。
+- **默认只发最小通用集合**（`model`/`messages`/`max_tokens`/`stream:false`），
+  `thinking`/`detail`/`reasoning_effort` 等专有字段按画像显式开启（已确证多家端点"发了就 400"）。
+- **三类自动回退**：404/405 切一次 `/v1` 前缀（用户显式给路径则不猜）；400 提示 `max_completion_tokens` 时自动换字段重试；
+  端点不认识某专有字段时剔除该字段重试。
+- **不把 HTTP 200 当成功**：响应解析会识别 `base_resp.status_code` 类业务错误，并区分空正文的五种成因
+  （撞 token 上限 / 只有思维链 / 内容安全拦截 / 结构化内容为空 / 原因未判定）。
+- 新增配置：`provider`、`api_key`、`api_path`、`extra_headers`、`extra_body`、`image_detail`、`thinking_mode`、`max_tokens_field`。
+
+### 3. 性能改造（并发 + 缓存 + 算力预算）
+
+- **分层聚合组间并发**：原先 3 组串行 → 现按算力预算并发（`api_concurrency`，0=自动），结果保持组序，聚合不受影响。
+- **视觉结果缓存**（`src/result-cache.js`）：键 = 图片内容哈希 + 参数指纹（模型 / 端点 / 提示词版本 / 提问…），
+  落盘 `~/.vision-exp-tile-result-cache`，支持 TTL 与体积上限自动清理。**只缓存成功结果**（错误与空正文不缓存，避免把错误固化）。
+- **全局 API 闸门**：并发额度跨调用共享，防止「批量图级并发 × 图内并发」叠乘把端点打成 429。
+- **算力预算表**（`src/concurrency.js`）：按性能档位与逻辑核数给出 API / 图级 / OCR 池并发基线，显式配置优先、带上限保护。
+- 新增配置：`api_concurrency`、`result_cache`、`result_cache_ttl_hours`、`result_cache_max_mb`。
+
+### 4. 其它修复与改进
+
+- **修复静默错数据**：批量链路拿不到图片尺寸而传 `width:0`，会让「相对坐标→像素坐标」全部钳成 0；
+  现由 `pipeline` 自行探测尺寸（`probeImageSize`），并在 `stages` 里记录尺寸来源。
+- **修复自动回退的双 URL**：404 切 `/v1` 时曾把完整 URL 当路径二次拼接，现统一为「换 baseURL」。
+- **修复 `api_key` 泄露面**：设置页直填的 key 不再写入 `process.env`（消费侧直接读配置对象）。
+- 设置页字段由 37 项扩至 **49 项**（新增 12 项全部可在 Web 设置页编辑）。
+- 工具总数由 3 个增至 **4 个**；`dsh-plugin.json` 的 `x-tools` 声明同步。
+- **代码精简**：删 6 处零引用导出（其中 `toSettingsBase()` 内引用了未导入的符号，一旦调用即 ReferenceError）；
+  清理 7 处未使用 import / 死变量；4 份过程文档（123KB）合并为 1 份；历史版本、旧回滚备份、历史发布快照
+  与项目外的适配目录移出/删除，项目目录由 ~830MB 降到 ~48MB。
+
+### 5. 验证
+
+- `npm test`：**286/286**；冒烟三套（标准 facet / Cordis 入口 / 客户端设置页）全过。
+- 新增测试：端点画像 15 项、端点接线 8 项、批量编排 10 项、批量端到端 3 项、批量报告 17 项、
+  并发与闸门 19 项、结果缓存 15 项、缓存接线 5 项、尺寸探测回归 3 项。
+- 顺带把两处**历史漏登记**的测试文件纳入 `npm test`（`smart.test.js`、`pipeline-size.test.js`）——
+  Node 20 不支持 glob，漏登记 = 从来没跑过。
+- **真机实测（DSH 0.2.0-rc.2，2026-10-02 01:04）**：
+  - 新增的第 4 个工具 `vision_batch_recognize` 在册可调用（能调用即证明宿主加载的是新代码）；
+  - **批量端到端**：2 张真图全成功（5 秒；报告头显示「并发：图级 2 · API 3」，说明算力预算生效），
+    产出 `index.jsonl` + `report.md`／`report-full.md`／`report.json` + 每图 `answer.md`／
+    `precheck.json`／`result.json`／区域 PNG；
+  - **续跑**：同批次再次调用 → 本次处理 **0 张 / 0 秒**，历史结果完整保留在重建的报告里；
+  - **结果缓存**：相同参数强制重跑 → **0 秒**（首次 4.8s / 3.6s），缓存目录 16 条；
+    换成不同 `question` 则结果不同 ⇒ 缓存键确实包含提问，不会串答案；
+  - **旧工具回归**：`vision_tile_split`（3200×2000 → 3×4=12 块 + overview）正常；
+  - 真机还暴露并修复了一个可观测性缺口（pipeline 丢弃缓存命中标记 → 报告恒显示「缓存命中 0 张」，
+    且 0 命中时的括号文案误导），已补断言锁住。
+
+
 
 ## v0.5.0（正式版 · 2026-10-01）
 

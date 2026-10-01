@@ -77,3 +77,18 @@ test('Config：字段一律不带默认值（设置页「留空 = 回落下层�
     assert.equal(dict[key].meta?.default, undefined, `${key} 不应有默认值`);
   }
 });
+
+test('Config：v1.0.0 新增 12 项齐备，总数 37 + 12 = 49（与 client.js FIELDS 双向一致）', () => {
+  const keys = Object.keys(Config?.dict ?? {});
+  const added = [
+    'provider', 'api_path', 'api_key', 'extra_headers', 'extra_body',
+    'image_detail', 'thinking_mode', 'max_tokens_field',
+    'api_concurrency', 'result_cache', 'result_cache_ttl_hours', 'result_cache_max_mb'
+  ];
+  assert.deepEqual(added.filter((k) => !keys.includes(k)), [], '新增项缺失');
+  assert.equal(keys.length, 49, `字段总数应为 49（37 既有 + 12 新增），实际 ${keys.length}`);
+  // 新增项也必须全部 volatile（否则不会出现在设置页）
+  for (const key of added) {
+    assert.equal(Config.dict[key].meta?.volatile, true, `${key} 应标 volatile`);
+  }
+});

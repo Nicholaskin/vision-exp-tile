@@ -50,11 +50,12 @@ const ctx = {
 const plugin = await import('../src/index.js');
 plugin.apply(ctx, {}); // 使用默认配置
 console.log(`[1] 插件加载 OK：${plugin.name}，注册工具：${tools.map((t) => t.name).join(', ')}`);
-if (tools.length !== 3) throw new Error(`预期 3 个工具，实际 ${tools.length}`);
+if (tools.length !== 4) throw new Error(`预期 4 个工具，实际 ${tools.length}`);
 const splitTool = tools.find((t) => t.name === 'vision_tile_split');
 const recognizeTool = tools.find((t) => t.name === 'vision_tile_recognize');
 const regionTool = tools.find((t) => t.name === 'vision_region_crop');
-if (!splitTool || !recognizeTool || !regionTool) throw new Error('缺少预期工具');
+const batchTool = tools.find((t) => t.name === 'vision_batch_recognize');
+if (!splitTool || !recognizeTool || !regionTool || !batchTool) throw new Error('缺少预期工具');
 
 // ---------- 3. 真实测试图切分（3200×2000 夹具 → 4×3 = 12 块） ----------
 const fixture = resolve(process.cwd(), 'tests/fixtures/test-3200x2000.png');

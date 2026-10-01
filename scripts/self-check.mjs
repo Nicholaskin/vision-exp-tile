@@ -21,7 +21,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { probeDevice, classifyTier, applyTierRecommendations, deviceProfileText } from '../src/device.js';

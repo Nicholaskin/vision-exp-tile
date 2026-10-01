@@ -73,6 +73,40 @@ test('parseYamlSection：分区不存在返回空对象', () => {
   assert.deepEqual(parseYamlSection(YAML, 'ghost'), {});
 });
 
+test('parseYamlSection：v1.0.0 新增 12 项也在白名单内（可迁移），未知键仍被跳过', () => {
+  const yaml = [
+    'vision-exp-tile:',
+    "  provider: openai",
+    "  api_path: /v1/chat/completions",
+    "  api_key: sk-test-123",
+    '  extra_headers: \'{"api-key":"abc"}\'',
+    '  extra_body: \'{"temperature":0.2}\'',
+    '  image_detail: low',
+    '  thinking_mode: off',
+    '  max_tokens_field: max_tokens',
+    '  api_concurrency: 2',
+    '  result_cache: false',
+    '  result_cache_ttl_hours: 24',
+    '  result_cache_max_mb: 64',
+    '  unknown_new_key: 1'   // 不在白名单 → 跳过
+  ].join('\n');
+  const sec = parseYamlSection(yaml, 'vision-exp-tile');
+  assert.deepEqual(sec, {
+    provider: 'openai',
+    api_path: '/v1/chat/completions',
+    api_key: 'sk-test-123',
+    extra_headers: '{"api-key":"abc"}',
+    extra_body: '{"temperature":0.2}',
+    image_detail: 'low',
+    thinking_mode: 'off',
+    max_tokens_field: 'max_tokens',
+    api_concurrency: '2',
+    result_cache: 'false',
+    result_cache_ttl_hours: '24',
+    result_cache_max_mb: '64',
+  });
+});
+
 test('parseYamlSection：空值键被丢弃', () => {
   const sec = parseYamlSection('vision-exp-tile:\n  base_url: \n  model: x\n', 'vision-exp-tile');
   assert.deepEqual(sec, { model: 'x' });

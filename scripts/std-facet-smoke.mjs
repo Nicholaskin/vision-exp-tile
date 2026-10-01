@@ -20,7 +20,7 @@
  *   只写临时目录，绝不触碰真实 ~/.dsh。
  */
 
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -77,9 +77,9 @@ check('FacetModule 含 activate 函数', typeof facetModule?.activate === 'funct
 await facetModule.activate(context);
 
 /* ---------- 4. 断言发布结果 ---------- */
-check('恰好发布 3 个 Tool 资源', published.length === 3, `实际 ${published.length}`);
+check('恰好发布 4 个 Tool 资源', published.length === 4, `实际 ${published.length}`);
 const names = published.map(p => p.name).sort();
-check('工具名 = [split, recognize, region_crop]', JSON.stringify(names) === JSON.stringify(['vision_region_crop', 'vision_tile_recognize', 'vision_tile_split']), JSON.stringify(names));
+check('工具名 = [batch, split, recognize, region_crop]', JSON.stringify(names) === JSON.stringify(['vision_batch_recognize', 'vision_region_crop', 'vision_tile_recognize', 'vision_tile_split']), JSON.stringify(names));
 check('协议引用 = tools.dsh/v1alpha1 + Tool', published.every(p => p.reference.apiVersion === 'tools.dsh/v1alpha1' && p.reference.kind === 'Tool'));
 
 /* ---------- 4b. dsh-plugin.json 经 @dsh-std/manifest 正式校验 ---------- */
@@ -93,7 +93,7 @@ check('协议引用 = tools.dsh/v1alpha1 + Tool', published.every(p => p.referen
     // 与 contributes["x-tools"] 的一致性（dsh-plugin.json 声明 vs 冒烟发布）
     const declared = parsed.contributes?.['x-tools'] ?? [];
     const declSet = new Set(declared.map(d => d.name));
-    check('manifest 声明 3 个工具且与发布名一致', declared.length === 3 && published.every(p => declSet.has(p.name)), JSON.stringify(declared.map(d => d.name)));
+    check('manifest 声明 4 个工具且与发布名一致', declared.length === 4 && published.every(p => declSet.has(p.name)), JSON.stringify(declared.map(d => d.name)));
   } catch (error) {
     check('dsh-plugin.json 通过 parseManifest', false, String(error));
   }
@@ -142,7 +142,12 @@ try {
 
 /* ---------- 8. src 业务链路零宿主 @deepseek-ai/* import ---------- */
 // v0.5.0 取消 picturereader 适配后，peer-config.js 已删除，扫描清单同步更新。
-const chain = ['src/index.js', 'src/runtime.js', 'src/settings-file.js', 'src/host-io.js', 'src/device.js', 'src/config.js'];
+// v1.0.0：新增模块（端点画像/批量/并发/缓存）一并纳入扫描——清单漏了新文件 = 护栏漏了口。
+const chain = [
+  'src/index.js', 'src/runtime.js', 'src/settings-file.js', 'src/host-io.js', 'src/device.js', 'src/config.js',
+  'src/vision-client.js', 'src/pipeline.js', 'src/api-profile.js', 'src/batch.js', 'src/batch-report.js',
+  'src/concurrency.js', 'src/result-cache.js', 'src/tile-engine.js'
+];
 let bad = [];
 for (const rel of chain) {
   const src = readFileSync(join(process.cwd(), rel), 'utf8');

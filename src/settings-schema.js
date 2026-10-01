@@ -60,8 +60,41 @@ export const SettingsSchema = z.object({
     .description('DeepSeek 视觉 API Base URL（OpenAI 兼容 chat/completions）'),
   model: z.string().default('deepseek-v4-flash-vision-exp').description('视觉模型名'),
   api_key_env: z.string().default('DEEPSEEK_API_KEY').description('读取 DeepSeek API key 的环境变量名'),
+  // ── v1.0.0 大更新③：多模态端点泛化（分组「识别与接口」）───────────────
+  provider: z
+    .string()
+    .default('auto')
+    .description('端点画像：auto=按 base_url 特征自动判定（默认）/ deepseek / openai / minimal（极简兼容）。映射环境变量 DSH_API_PROVIDER'),
+  api_path: z
+    .string()
+    .default('')
+    .description('路径覆盖（拼在 base_url 之后）；空=用画像默认 /chat/completions，可含 query（如 Azure 的 ?api-version=）。映射环境变量 DSH_API_PATH'),
+  api_key: z
+    .string()
+    .default('')
+    .description('直接填写的 API key（敏感，设置页按密码型控件渲染）；优先级高于 api_key_env，本地端点可留空。映射环境变量 DSH_API_KEY'),
 
   // ── 高级（advanced=true）──────────────────────────────────────────────
+  extra_headers: z
+    .string()
+    .default('')
+    .description('高级：附加/覆盖请求头（JSON 对象字符串，如 {"api-key":"..."}）；解析失败则忽略该项。映射环境变量 DSH_API_EXTRA_HEADERS'),
+  extra_body: z
+    .string()
+    .default('')
+    .description('高级：附加请求体字段（JSON 对象字符串，如 {"temperature":0.2}）；不允许覆盖 messages，解析失败则忽略该项。映射环境变量 DSH_API_EXTRA_BODY'),
+  image_detail: z
+    .string()
+    .default('auto')
+    .description('高级：图片 detail 下发策略 auto=按画像（默认）/ off=不发 / low / high / original（非 DeepSeek 画像下降级 high）。映射环境变量 DSH_IMAGE_DETAIL'),
+  thinking_mode: z
+    .string()
+    .default('auto')
+    .description('高级：thinking 下发策略 auto=仅 DeepSeek 画像下发（默认）/ on=总是下发 / off=总是不发。映射环境变量 DSH_THINKING_MODE'),
+  max_tokens_field: z
+    .string()
+    .default('auto')
+    .description('高级：token 上限字段名 auto=按画像且 400 时自动回退（默认）/ max_tokens / max_completion_tokens。映射环境变量 DSH_MAX_TOKENS_FIELD'),
   block_size: z
     .number()
     .min(64)
@@ -115,6 +148,29 @@ export const SettingsSchema = z.object({
     .boolean()
     .default(true)
     .description('高级：OCR 前处理开关。true=启用（默认，不设环境变量）；false=设 DSH_OCR_PREPROC=0 禁用'),
+  // ── v1.0.0 大更新④：性能与结果缓存（分组「性能与 OCR 池」）────────────
+  api_concurrency: z
+    .number()
+    .min(0)
+    .max(4)
+    .default(0)
+    .description('高级：分层聚合的组间并发上限 0..4；0=自动（按算力预算，默认）。映射环境变量 DSH_API_CONCURRENCY'),
+  result_cache: z
+    .boolean()
+    .default(true)
+    .description('高级：视觉结果缓存开关（预检/区域识别）。true=启用（默认）；false=设 DSH_RESULT_CACHE=0 禁用'),
+  result_cache_ttl_hours: z
+    .number()
+    .min(1)
+    .max(8760)
+    .default(168)
+    .description('高级：结果缓存 TTL（小时，1..8760，默认 168=7 天）；0 视为非法 → 回落默认。映射环境变量 DSH_RESULT_CACHE_TTL_HOURS'),
+  result_cache_max_mb: z
+    .number()
+    .min(16)
+    .max(10240)
+    .default(512)
+    .description('高级：结果缓存体积上限（MB，16..10240，默认 512；超限按写入时间从旧到新清理）；0 视为非法 → 回落默认。映射环境变量 DSH_RESULT_CACHE_MAX_MB'),
   // ── v0.4.0：GPU 多设备加速 ────────────────────────────────────────────
   gpu_provider: z
     .string()
@@ -191,23 +247,4 @@ export const SettingsSchema = z.object({
  */
 export { SETTINGS_FIELDS } from './settings-fields.js';
 
-/**
- * 把插件既有的 camelCase 配置（configRaw，来自 settings.yaml / DEFAULT_CONFIG）
- * 映射成 snake_case，用于作为 dsh-settings 注册时的 composition base。
- *
- * 目的：让 configRaw 的值以「低于用户设置页、高于 schema 默认值」的第 2 层
- * 参与解析——否则 schema 默认值（如 base_url=https://api.deepseek.com）会
- * 覆盖 configRaw 中用户显式写的 baseURL。
- *
- * @param {object} [configRaw] - 插件的原始配置（camelCase）。
- * @returns {object} snake_case 的 base 层（仅有值映射；undefined/空返回 {}）。
- */
-export function toSettingsBase(configRaw) {
-  const src = configRaw && typeof configRaw === 'object' ? configRaw : {};
-  const base = {};
-  for (const f of SETTINGS_FIELDS) {
-    if (!f.configKey) continue; // 纯设置项（无对应 camelCase 配置键）不进 base
-    if (src[f.configKey] !== undefined) base[f.key] = src[f.configKey];
-  }
-  return base;
-}
+

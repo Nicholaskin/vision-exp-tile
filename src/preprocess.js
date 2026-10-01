@@ -24,9 +24,6 @@ import { PNG } from 'pngjs';
 const DARK_AVG_LUMINANCE = 110;
 /** 深底时允许的亮像素占比下限（低于此占比说明是纯黑图/夜景，不做反色） */
 const DARK_STAGE_SHARE = 0.005;
-/** 高对比印刷体跳过判定：平均亮度 >150 且标准差 >40 */
-const CLEAN_AVG_LUMINANCE = 150;
-const CLEAN_STD = 40;
 /** 放大的长边阈值：超过该值不放大（避免破坏大图与耗时） */
 const ENLARGE_MAX_EDGE = 1200;
 /** 放大倍率（2×） */

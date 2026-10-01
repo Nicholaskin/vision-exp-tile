@@ -3,7 +3,7 @@
   "manifestVersion": "0.15",
   "id": "vision.tile",
   "name": "vision-exp-tile",
-  "version": "0.5.0-rc.1",
+  "version": "1.0.0",
   "facets": {
     "host": {
       "entry": "./std-facet.js",
@@ -44,6 +44,16 @@
         "spec": {
           "title": "区域裁剪识别",
           "description": "按预检返回的相对矩形裁剪原图区域，可落盘或直读视觉 API 识别（识别失败自动降级为本地 OCR 文本）。"
+        }
+      },
+      {
+        "apiVersion": "tools.dsh/v1alpha1",
+        "kind": "Tool",
+        "id": "vision.tile.batch-recognize",
+        "name": "vision_batch_recognize",
+        "spec": {
+          "title": "批量识别目录",
+          "description": "目录级批量识别流水线：逐图识别、单图失败不中断、进度落 index.jsonl、可中断续跑，产出 report.md/report-full.md/report.json 三件套报告。"
         }
       }
     ]

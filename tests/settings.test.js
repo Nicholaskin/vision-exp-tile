@@ -32,7 +32,11 @@ const DSH_KEYS = [
   'DSH_INTEREST_CONCURRENCY', 'DSH_OCR_POOL', 'DSH_OCR_CACHE', 'DSH_OCR_PREPROC',
   // v0.4.1：新增可写 env（含 GPU/慢机自适应相关），测试后须还原避免污染
   'DSH_OCR_GPU_PROVIDER', 'DSH_OCR_GPU_PYTHON', 'DSH_OCR_GPU_DEVICE', 'DSH_OCR_GPU_FALLBACK',
-  'DSH_OCR_POOL_TIMEOUT', 'DSH_OCR_PERF_TIER', 'VISION_TEST_TIMEOUT_FACTOR', 'VISION_TEST_SKIP_TIMING'
+  'DSH_OCR_POOL_TIMEOUT', 'DSH_OCR_PERF_TIER', 'VISION_TEST_TIMEOUT_FACTOR', 'VISION_TEST_SKIP_TIMING',
+  // v1.0.0：端点泛化（8 项）+ 性能与结果缓存（4 项）——applySettingsEnv 会写这些键，测试后必须还原
+  'DSH_API_PROVIDER', 'DSH_API_PATH', 'DSH_API_KEY', 'DSH_API_EXTRA_HEADERS', 'DSH_API_EXTRA_BODY',
+  'DSH_IMAGE_DETAIL', 'DSH_THINKING_MODE', 'DSH_MAX_TOKENS_FIELD',
+  'DSH_API_CONCURRENCY', 'DSH_RESULT_CACHE', 'DSH_RESULT_CACHE_TTL_HOURS', 'DSH_RESULT_CACHE_MAX_MB'
 ];
 
 function snapshotEnv() {
@@ -171,6 +175,151 @@ test('envFromSettings：越界/非整数数值被忽略', () => {
   const env = envFromSettings({ interest_concurrency: 99, ocr_pool: -1 });
   assert.equal(env.DSH_INTEREST_CONCURRENCY, undefined);
   assert.equal(env.DSH_OCR_POOL, undefined);
+});
+
+/* ------------------------------------------------------------------ */
+/* v1.0.0 新增 12 项：设置 → env / 归一化                                */
+/* ------------------------------------------------------------------ */
+
+test('v1.0.0 settings-fields：新增 12 项齐备且总数 38 + 12 = 50', () => {
+  const keys = SETTINGS_FIELDS.map((f) => f.key);
+  const added = [
+    'provider', 'api_path', 'api_key', 'extra_headers', 'extra_body',
+    'image_detail', 'thinking_mode', 'max_tokens_field',
+    'api_concurrency', 'result_cache', 'result_cache_ttl_hours', 'result_cache_max_mb'
+  ];
+  assert.deepEqual(added.filter((k) => !keys.includes(k)), [], '新增项缺失');
+  assert.equal(keys.length, 50, `字段总数应为 50（38 既有 + 12 新增），实际 ${keys.length}`);
+  // 新增项的 envKey 与契约一致
+  const envOf = Object.fromEntries(SETTINGS_FIELDS.map((f) => [f.key, f.envKey]));
+  assert.equal(envOf.provider, 'DSH_API_PROVIDER');
+  assert.equal(envOf.api_key, 'DSH_API_KEY');
+  assert.equal(envOf.api_path, 'DSH_API_PATH');
+  assert.equal(envOf.extra_headers, 'DSH_API_EXTRA_HEADERS');
+  assert.equal(envOf.extra_body, 'DSH_API_EXTRA_BODY');
+  assert.equal(envOf.image_detail, 'DSH_IMAGE_DETAIL');
+  assert.equal(envOf.thinking_mode, 'DSH_THINKING_MODE');
+  assert.equal(envOf.max_tokens_field, 'DSH_MAX_TOKENS_FIELD');
+  assert.equal(envOf.api_concurrency, 'DSH_API_CONCURRENCY');
+  assert.equal(envOf.result_cache, 'DSH_RESULT_CACHE');
+  assert.equal(envOf.result_cache_ttl_hours, 'DSH_RESULT_CACHE_TTL_HOURS');
+  assert.equal(envOf.result_cache_max_mb, 'DSH_RESULT_CACHE_MAX_MB');
+});
+
+test('envFromSettings：端点泛化 8 项按 envKey 写入（auto/空 不写）', () => {
+  const env = envFromSettings({
+    provider: 'openai',
+    api_path: '/v1/chat/completions?api-version=2024-10-21',
+    api_key: 'sk-abcdefghij',
+    extra_headers: '{"api-key":"abc"}',
+    extra_body: '{"temperature":0.2}',
+    image_detail: 'low',
+    thinking_mode: 'off',
+    max_tokens_field: 'max_completion_tokens'
+  });
+  assert.equal(env.DSH_API_PROVIDER, 'openai');
+  assert.equal(env.DSH_API_PATH, '/v1/chat/completions?api-version=2024-10-21');
+  // v1.0.0 裁决：api_key **故意不注入 env**（消费侧直接读 cfg.apiKey；
+  // 明文写进 process.env 会扩大泄露面：子进程、异常转储、调试打印都可能带出）。
+  assert.equal(env.DSH_API_KEY, undefined, 'api_key 不得进入环境变量');
+  assert.equal(env.DSH_API_EXTRA_HEADERS, '{"api-key":"abc"}');
+  assert.equal(env.DSH_API_EXTRA_BODY, '{"temperature":0.2}');
+  assert.equal(env.DSH_IMAGE_DETAIL, 'low');
+  assert.equal(env.DSH_THINKING_MODE, 'off');
+  assert.equal(env.DSH_MAX_TOKENS_FIELD, 'max_completion_tokens');
+});
+
+test('envFromSettings：默认/未设置（auto 与空串）不写 env，避免覆盖已有环境变量', () => {
+  const env = envFromSettings({
+    provider: 'auto', api_path: '', api_key: '', extra_headers: '', extra_body: '',
+    image_detail: 'auto', thinking_mode: 'auto', max_tokens_field: 'auto'
+  });
+  for (const k of ['DSH_API_PROVIDER', 'DSH_API_PATH', 'DSH_API_KEY', 'DSH_API_EXTRA_HEADERS',
+    'DSH_API_EXTRA_BODY', 'DSH_IMAGE_DETAIL', 'DSH_THINKING_MODE', 'DSH_MAX_TOKENS_FIELD']) {
+    assert.equal(env[k], undefined, `${k} 在默认/空值下不应写入`);
+  }
+});
+
+test('envFromSettings：性能 4 项（布尔 "0"/"1"、数字十进制、api_concurrency=0 合法）', () => {
+  const env = envFromSettings({
+    api_concurrency: 0, result_cache: true, result_cache_ttl_hours: 24, result_cache_max_mb: 64
+  });
+  assert.equal(env.DSH_API_CONCURRENCY, '0'); // 0 = 自动，合法值照写
+  assert.equal(env.DSH_RESULT_CACHE, '1');
+  assert.equal(env.DSH_RESULT_CACHE_TTL_HOURS, '24');
+  assert.equal(env.DSH_RESULT_CACHE_MAX_MB, '64');
+
+  const off = envFromSettings({ result_cache: false });
+  assert.equal(off.DSH_RESULT_CACHE, '0');
+
+  // 未设置 → 不写（回落模块默认）；0/越界 TTL 与上限 → 不写
+  const unset = envFromSettings({ result_cache_ttl_hours: 0, result_cache_max_mb: 0 });
+  assert.equal(unset.DSH_RESULT_CACHE, undefined);
+  assert.equal(unset.DSH_RESULT_CACHE_TTL_HOURS, undefined);
+  assert.equal(unset.DSH_RESULT_CACHE_MAX_MB, undefined);
+});
+
+test('normalizeFromSettings：新增 12 项 snake→camel 映射并透传', () => {
+  const cfg = normalizeFromSettings({
+    provider: 'minimal',
+    api_path: '/p',
+    api_key: 'k',
+    extra_headers: '{"h":1}',
+    extra_body: '{"b":2}',
+    image_detail: 'original',
+    thinking_mode: 'on',
+    max_tokens_field: 'max_tokens',
+    api_concurrency: 4,
+    result_cache: false,
+    result_cache_ttl_hours: 1,
+    result_cache_max_mb: 16
+  });
+  assert.equal(cfg.provider, 'minimal');
+  assert.equal(cfg.apiPath, '/p');
+  assert.equal(cfg.apiKey, 'k');
+  assert.equal(cfg.extraHeaders, '{"h":1}');
+  assert.equal(cfg.extraBody, '{"b":2}');
+  assert.equal(cfg.imageDetail, 'original');
+  assert.equal(cfg.thinkingMode, 'on');
+  assert.equal(cfg.maxTokensField, 'max_tokens');
+  assert.equal(cfg.apiConcurrency, 4);
+  assert.equal(cfg.resultCache, false);
+  assert.equal(cfg.resultCacheTtlHours, 1);
+  assert.equal(cfg.resultCacheMaxMb, 16);
+});
+
+test('normalizeFromSettings：新增项默认值与其他两处一致（契约 §二.2）', () => {
+  const cfg = normalizeFromSettings({});
+  assert.equal(cfg.provider, 'auto');
+  assert.equal(cfg.apiPath, '');
+  assert.equal(cfg.apiKey, '');
+  assert.equal(cfg.extraHeaders, '');
+  assert.equal(cfg.extraBody, '');
+  assert.equal(cfg.imageDetail, 'auto');
+  assert.equal(cfg.thinkingMode, 'auto');
+  assert.equal(cfg.maxTokensField, 'auto');
+  assert.equal(cfg.apiConcurrency, 0);
+  assert.equal(cfg.resultCache, true);
+  assert.equal(cfg.resultCacheTtlHours, 168);
+  assert.equal(cfg.resultCacheMaxMb, 512);
+});
+
+test('normalizeFromSettings：新增数值项的 0 语义与 JSON 容错（不抛错）', () => {
+  // api_concurrency=0 合法（=自动）
+  assert.equal(normalizeFromSettings({ api_concurrency: 0 }).apiConcurrency, 0);
+  // result_cache_ttl_hours / result_cache_max_mb 的 0 = 非法 → 回落默认
+  const cfg = normalizeFromSettings({ result_cache_ttl_hours: 0, result_cache_max_mb: 0 });
+  assert.equal(cfg.resultCacheTtlHours, 168);
+  assert.equal(cfg.resultCacheMaxMb, 512);
+  // 越界同样回落默认（不抛错）
+  const out = normalizeFromSettings({ api_concurrency: 9, result_cache_ttl_hours: 99999, result_cache_max_mb: 1 });
+  assert.equal(out.apiConcurrency, 0);
+  assert.equal(out.resultCacheTtlHours, 168);
+  assert.equal(out.resultCacheMaxMb, 512);
+  // JSON 非法/非对象 → 忽略该项（空串），不抛错
+  const bad = normalizeFromSettings({ extra_headers: '{oops', extra_body: '[1,2]' });
+  assert.equal(bad.extraHeaders, '');
+  assert.equal(bad.extraBody, '');
 });
 
 /* ------------------------------------------------------------------ */

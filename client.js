@@ -31,7 +31,7 @@ window.__ModuleLoader__.load({
      * 字段表：与 src/plugin-config.js 的 Config（volatile 字段）**一一对应**
      * （数量与键名不一致会被 scripts/client-settings-smoke.mjs 的双向一致性断言拦下）。
      *
-     * type 决定控件：text / number / boolean / select；
+     * type 决定控件：text / password（敏感项，如 API 密钥直填）/ number / boolean / select；
      * numeric 表示该 select 的值要按数字提交（如 rotate 的 0/90/180/270）；
      * group 决定分组（见 GROUPS）。
      */
@@ -52,6 +52,18 @@ window.__ModuleLoader__.load({
       // ── 识别与接口 ──
       { key: 'base_url', group: 'core', type: 'text', label: '视觉 API 地址', hint: '留空 = 内置默认（https://api.deepseek.com）' },
       { key: 'api_key_env', group: 'core', type: 'text', label: '密钥环境变量名', hint: '默认 DEEPSEEK_API_KEY；留空 = 用默认' },
+      // v1.0.0 大更新③：多模态端点泛化（分组「识别与接口」）
+      {
+        key: 'provider', group: 'core', type: 'select', label: '端点画像',
+        options: [dft('（默认 auto）'), opt('auto', 'auto（按地址自动判定）'), opt('deepseek', 'deepseek（DeepSeek 端点）'),
+          opt('openai', 'openai（OpenAI 兼容 / 本地 vLLM、Ollama、LM Studio）'), opt('minimal', 'minimal（极简兼容，只发最小请求体）')],
+        hint: 'auto：地址含 deepseek 走 DeepSeek 画像，其余走 OpenAI 兼容画像'
+      },
+      { key: 'api_path', group: 'core', type: 'text', label: '接口路径覆盖', hint: '留空 = 画像默认 /chat/completions；可含 query（如 Azure 的 ?api-version=）' },
+      {
+        key: 'api_key', group: 'core', type: 'password', label: 'API 密钥（直填）',
+        hint: '优先级高于环境变量名；本地端点可留空。保存后仅以密文回显，日志中会打码'
+      },
       { key: 'model', group: 'core', type: 'text', label: '视觉模型', hint: '留空 = 内置默认模型' },
       { key: 'max_tokens', group: 'core', type: 'number', label: '输出 token 上限', hint: '单次识别返回的最大 token 数' },
       { key: 'timeout_ms', group: 'core', type: 'number', label: '请求超时（毫秒）', hint: '留空 = 内置默认' },
@@ -78,6 +90,32 @@ window.__ModuleLoader__.load({
         options: [dft('（默认 full）'), opt('full', 'full（低置信/手写/深底都升级）'), opt('low', 'low（仅低置信升级）'),
           opt('off', 'off（不升级）')],
         hint: '本地 OCR 结果不佳时是否改用视觉 API 重读'
+      },
+      // v1.0.0 大更新③：端点高级逃生口（分组「识别与接口」）
+      {
+        key: 'extra_headers', group: 'core', type: 'text', label: '附加请求头（JSON）',
+        hint: '如 {"api-key":"..."}；留空 = 不发。非法 JSON 会被忽略（不会导致报错）'
+      },
+      {
+        key: 'extra_body', group: 'core', type: 'text', label: '附加请求体（JSON）',
+        hint: '如 {"temperature":0.2}；不允许覆盖 messages。非法 JSON 会被忽略'
+      },
+      {
+        key: 'image_detail', group: 'core', type: 'select', label: '图片 detail 策略',
+        options: [dft('（默认 auto）'), opt('auto', 'auto（按画像）'), opt('off', 'off（不发 detail）'),
+          opt('low', 'low（省 token）'), opt('high', 'high'), opt('original', 'original（非 DeepSeek 画像降级为 high）')],
+        hint: '不通用字段：OpenAI / 本地端点按画像是「不发」还是「降级」'
+      },
+      {
+        key: 'thinking_mode', group: 'core', type: 'select', label: 'thinking 下发策略',
+        options: [dft('（默认 auto）'), opt('auto', 'auto（仅 DeepSeek 画像下发）'), opt('on', 'on（总是下发）'), opt('off', 'off（总是不发）')],
+        hint: '部分厂商收到 thinking 会直接 400，默认只对 DeepSeek 下发'
+      },
+      {
+        key: 'max_tokens_field', group: 'core', type: 'select', label: 'token 上限字段名',
+        options: [dft('（默认 auto）'), opt('auto', 'auto（按画像，400 时自动回退）'), opt('max_tokens', 'max_tokens'),
+          opt('max_completion_tokens', 'max_completion_tokens（OpenAI 推理模型）')],
+        hint: '留空 = auto：报 400 提到字段名时自动换字段重试一次'
       },
 
       // ── 切块与输出 ──
@@ -118,6 +156,11 @@ window.__ModuleLoader__.load({
           opt('normal', 'normal（均衡）'), opt('slow', 'slow（低性能/省电）')],
         hint: '影响并发、超时与 GPU 开关推荐'
       },
+      // v1.0.0 大更新④：性能与结果缓存（分组「性能与 OCR 池」）
+      { key: 'api_concurrency', group: 'perf', type: 'number', label: '组间并发上限', hint: '0..4；0 = 自动（按算力预算，默认）' },
+      { key: 'result_cache', group: 'perf', type: 'boolean', label: '启用识别结果缓存', hint: '默认开启；预检/区域识别结果落盘复用，重复跑同图直接命中' },
+      { key: 'result_cache_ttl_hours', group: 'perf', type: 'number', label: '结果缓存有效期（小时）', hint: '1..8760，默认 168（7 天）；0 视为非法并回落默认' },
+      { key: 'result_cache_max_mb', group: 'perf', type: 'number', label: '结果缓存体积上限（MB）', hint: '16..10240，默认 512；超限从最旧开始清理' },
 
       // ── GPU 加速 ──
       {
@@ -313,10 +356,12 @@ window.__ModuleLoader__.load({
             : h('input', {
                 key: field.key + '-input',
                 className: 'vet-input',
-                type: field.type === 'number' ? 'number' : 'text',
+                // password = 密码型控件（敏感项，如 API 密钥直填）：浏览器不回显明文
+                type: field.type === 'number' ? 'number' : (field.type === 'password' ? 'password' : 'text'),
                 value: shown(field),
                 disabled: !writable || busy,
                 placeholder: '（默认）',
+                autoComplete: field.type === 'password' ? 'new-password' : undefined,
                 onChange: (event) => edit(field, event.target.value)
               })
       ];
