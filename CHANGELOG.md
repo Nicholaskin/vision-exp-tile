@@ -20,9 +20,17 @@
 - **声明**：`package.json` 增加 `dsh.client`（`platform: web`，inject 声明 `@deepseek-ai/dsh-client-ui-settings` 与 `...-ui-plugin-manager` 仅用于激活顺序）、`exports["./client"]`、`files` 收录 `client.js`。
 - **测试**：`tests/client-bundle.test.js` 按新结构重写（10 项：ModuleLoader 格式 / id=包名 / inject 服务 / plugins.item 注册 / configForms 通道 / 不 require 宿主包 / 不含已移除 API（**断言前先剥离注释**，避免注释里提及旧 API 名导致假红）/ 自绘控件 / 字段键 snake_case / package.json 声明）；新增 `scripts/client-settings-smoke.mjs`（19 项，`node:vm` 造浏览器环境真实执行 client.js：注册行为、渲染不抛、**界面字段 ↔ Config 字段双向一致**，防「加了配置忘加界面」的漂移）。
 
-**验证**：`npm test` **168/168**；`npm run smoke` = 标准 facet 入口 15/15 + Cordis 入口 19/19 + 客户端设置页 19/19 全过。
+**验证（本地，收口时）**：`npm test` **176/176**；`npm run smoke` = 标准 facet 入口 15/15 + Cordis 入口 20/20 + 客户端设置页 19/19 全过。
 
-**待宿主实测**：重启 DSH 后，Web 侧栏「插件」页应出现「图像分块识别」卡片，可编辑并保存上述 12 项，保存后立即生效——结果回填本节。
+**真机实测（2026-10-01 23:09，宿主 0.2.0-rc.2）：成功 ✅**
+
+- Web 侧栏「插件」页出现「图像分块识别」卡片，字段可编辑并保存；保存后**不再显示只读提示**。
+- **端到端落盘证据**：profile 的 `cordis.patch.yml` 出现该条目的 config 写入（实测 `- id: vision-exp-tile` / `config: ocr_engine: auto`，文件时间戳 23:09:08）——设置页 → Host 校验 → Cordis patch 完整链路打通。
+
+**真机踩的两个坑（均已修复并加回归断言）**
+
+1. **volatile 字段是「热更新包装对象」，不是裸值**：宿主传给 `apply(ctx, config)` 的 volatile 字段需调 `.get()` 取当前值；早期版本直接并入配置链 → 插件启用失败：`config: overlap 必须是 0~399 的整数（实际: [object Object]）`。修复：`pickOverrides()` 统一解包 + 只接受标量（对象/数组/函数一律拦掉）；顺带实现「每次读配置都取最新值」→ 设置页保存后**无需重启即热生效**。
+2. **分段修复漏了入口**：第一次只改了「配置读取」处，漏了 `apply` 开头的 `normalizeConfig(configRaw)`，重启后仍报同一错误（**行号 993 → 1015**，说明新代码已加载、是漏点而非缓存）。修复后两处入口统一走解包；`cordis-entry-smoke` 新增真机场景回归断言，并做反证：撤掉修复时该断言报出与真机一字不差的错误。
 
 ## v0.5.0-rc.3（双形态 · 跟随 DSH 0.2.0 装载机制）
 
