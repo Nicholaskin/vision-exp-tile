@@ -32,7 +32,11 @@
 - **修复**：恢复 `export const inject = ['tools']`（只声明真正用到的 `tools`；旧版的 `fs` 已由 `host-io.js` 用 `node:fs` 自实现、`settings` 已文件化，均不再需要）。
 - **防回归**：`cordis-entry-smoke.mjs` 的假 ctx 改成 **getter + 注入校验**——未声明 `inject` 就访问 `ctx.tools` 时抛出与宿主同样的错误；并新增「inject 声明含 tools」断言。已做反证：临时清空 `inject` 后冒烟立刻报 `✘ cannot get property "tools" without inject`（19 项中断言失败 4 项），确认这条回归从此能被本地抓住。
 
-**待办（需宿主侧实测）**：在 DSH 0.2.0 的插件管理器中装入本插件（link 依赖已在 profile），确认 `vision_tile_split` / `vision_tile_recognize` / `vision_region_crop` 出现在工具目录——装配结果回填本节。
+**真机装载实测（2026-10-01 22:15，宿主 0.2.0-rc.2）：成功 ✅**
+
+- 在 DSH 插件管理器启用后，宿主工具目录由 72 → **75** 个，`vision_tile_split` / `vision_tile_recognize` / `vision_region_crop` **三个工具全部在册**（描述文本正确）。
+- 功能实测（真实图 509×953px）：`vision_tile_split` 切为 2 块并落盘 3 个 PNG（overview 276.7 KB + 块 44.6 / 13.0 KB）；`vision_region_crop`（`recognize=false`）落盘区域 PNG 255×286 ✅。
+- **装载经验（重要）**：改动插件代码后**必须彻底退出并重启 DSH 才生效**——热「启用/重新安装」不会重新读文件（Node ESM 模块缓存），报错堆栈还会继续显示**旧代码行号**；本轮即据此判定「磁盘已是新代码、宿主仍跑旧模块」。判据：**把报错行号与磁盘行号对照**。
 
 ## v0.5.0-rc.2（取消 picturereader 适配 · 阶段二首项）
 
