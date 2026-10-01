@@ -34,8 +34,21 @@ import { probeDevice, deviceProfileText } from './device.js';
 import { initFileSettings, syncSettingEnv, setSetting, readSnapshot } from './settings-file.js';
 import { openImageSource, outDirBase } from './host-io.js';
 
-/** 插件名（兼容旧 Cordis 装载场景；标准装载不读取）。 */
+/** 插件名（Cordis 装载时作为插件行标识）。 */
 export const name = 'vision-exp-tile';
+
+/**
+ * Cordis 服务依赖声明（**必需**，缺了插件会启用失败）。
+ *
+ * Cordis 的宿主服务是惰性代理：**未在本数组声明就访问 `ctx.tools` 会直接抛错**
+ * ——`Error: cannot get property "tools" without inject`（宿主 0.2.0 实测，
+ * 表现为「1 entry did not activate vision-exp-tile」）。
+ *
+ * 本插件只依赖 `tools` 服务（注册三个工具）。
+ *  - 旧版还声明过 `fs`：v0.5.0 起文件访问由 src/host-io.js 用 `node:fs` 自实现，无需该服务；
+ *  - 旧版还用过 `settings` 服务：设置已文件化（~/.dsh/vision-exp-tile.json），无需该服务。
+ */
+export const inject = ['tools'];
 
 /** 单张图片文件读取字节上限（512 MiB，大图足够）。 */
 const IMAGE_BYTE_CAP = 512 * 1024 * 1024;

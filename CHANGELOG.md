@@ -24,6 +24,14 @@
 
 **验证**：`npm test` **166/166** 全绿；`npm run smoke` = 标准入口 15/15 + Cordis 入口 18/18 全过。
 
+**首次真机装载暴露并修复的问题（重要）**
+
+- **症状**：在 DSH 0.2.0 插件管理器里启用本插件失败——
+  `1 entry did not activate vision-exp-tile: Error: cannot get property "tools" without inject at registerToolset (src/index.js:949)`。
+- **原因**：Cordis 的宿主服务是**惰性代理**，插件必须先用 `export const inject = ['tools']` 声明依赖，之后才能在 `apply` 内访问 `ctx.tools`。v0.4.3 原本有该声明（`inject = ['tools','fs']`），**阶段一生态化改造时被误删**（当时判断「标准插件不再需要宿主服务」），而本地的两套冒烟用的都是自己造的假 ctx，直接把 `tools` 挂上去，因此没能发现。
+- **修复**：恢复 `export const inject = ['tools']`（只声明真正用到的 `tools`；旧版的 `fs` 已由 `host-io.js` 用 `node:fs` 自实现、`settings` 已文件化，均不再需要）。
+- **防回归**：`cordis-entry-smoke.mjs` 的假 ctx 改成 **getter + 注入校验**——未声明 `inject` 就访问 `ctx.tools` 时抛出与宿主同样的错误；并新增「inject 声明含 tools」断言。已做反证：临时清空 `inject` 后冒烟立刻报 `✘ cannot get property "tools" without inject`（19 项中断言失败 4 项），确认这条回归从此能被本地抓住。
+
 **待办（需宿主侧实测）**：在 DSH 0.2.0 的插件管理器中装入本插件（link 依赖已在 profile），确认 `vision_tile_split` / `vision_tile_recognize` / `vision_region_crop` 出现在工具目录——装配结果回填本节。
 
 ## v0.5.0-rc.2（取消 picturereader 适配 · 阶段二首项）

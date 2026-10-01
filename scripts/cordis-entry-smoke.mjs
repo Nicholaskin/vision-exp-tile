@@ -50,10 +50,25 @@ try {
 
 check('导出 apply 为函数', typeof mod.apply === 'function', typeof mod.apply);
 check('导出 name = vision-exp-tile', mod.name === 'vision-exp-tile', String(mod.name));
+// ⚠ 关键回归项：Cordis 要求插件声明它用到的宿主服务，声明后才能访问 ctx.tools。
+// 宿主实测缺失时会报 `cannot get property "tools" without inject`（插件启用失败）。
+check(
+  "inject 声明含 'tools'（Cordis 服务注入，缺失即启用失败）",
+  Array.isArray(mod.inject) && mod.inject.includes('tools'),
+  JSON.stringify(mod.inject)
+);
 
 /* ---------- 2. 最小 ctx 垫片：tools.register 收集 + effect 收集 ---------- */
+// tools 特意做成 getter 并复现 Cordis 的约束：未在 inject 声明就访问直接抛错
+// ——这样「忘了写 inject」会在这里红，而不是等到宿主里启用失败。
 const registered = [];
 const cleanups = [];
+const toolsApi = {
+  register(def) {
+    registered.push(def);
+    return () => {}; // disposer 垫片
+  }
+};
 const ctx = {
   logger: { info() {}, warn() {}, error() {} },
   /** Cordis effect 垫片：立即执行 setup，返回的清理函数收进 cleanups */
@@ -62,11 +77,11 @@ const ctx = {
     if (typeof cleanup === 'function') cleanups.push(cleanup);
     return cleanup;
   },
-  tools: {
-    register(def) {
-      registered.push(def);
-      return () => {}; // disposer 垫片
+  get tools() {
+    if (!Array.isArray(mod.inject) || !mod.inject.includes('tools')) {
+      throw new Error('cannot get property "tools" without inject');
     }
+    return toolsApi;
   }
 };
 
