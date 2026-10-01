@@ -44,12 +44,15 @@ jobs:
           VER="${GITHUB_REF_NAME#v}"
           mkdir -p dist
           # 1) 完整版：全部源码（含 ocr-worker.py 常驻 Python 引擎支持）
+          #    v0.5.0 起补入 std-facet.js / dsh-plugin.json（dsh-std 标准形态备用入口）与 CHANGELOG.md
           zip -r "dist/vision-exp-tile-v${VER}.zip" \
-            src tests scripts client.js package.json README.md LICENSE cordis.patch.yml .gitignore \
+            src tests scripts client.js std-facet.js dsh-plugin.json cordis.patch.yml \
+            package.json README.md CHANGELOG.md LICENSE .gitignore \
             -x '*/node_modules/*'
           # 2) 无 Python 零配置版：剔除 ocr-worker.py（本地识别自动降级为 Windows OCR 常驻池）
           zip -r "dist/vision-exp-tile-v${VER}-nopython.zip" \
-            src tests scripts client.js package.json README.md LICENSE cordis.patch.yml .gitignore \
+            src tests scripts client.js std-facet.js dsh-plugin.json cordis.patch.yml \
+            package.json README.md CHANGELOG.md LICENSE .gitignore \
             -x '*/node_modules/*' -x 'src/ocr-worker.py'
           echo "已生成："
           ls -lh dist/
