@@ -1,0 +1,17 @@
+# vision-exp-tile — bundle patch：把本插件的组合树行插进 profile。
+#
+# 用途（DSH 0.2.0-rc.2 及以前的官方装载机制）：
+#   宿主按 `profile.package.json` 的 `dsh.profile.bundles[]` 顺序，逐个读取 bundle 包
+#   manifest 里的 `dsh.bundle.patch` 指向的 patch 文件并叠加成组合树；本文件就是本插件
+#   作为 bundle 的 patch 层——把 id/name 均为 vision-exp-tile 的一行插到组合树顶层，
+#   宿主再按该 name 从 profile 的 node_modules 解析到本包（package.json 的 main）
+#   并装载其 apply 入口。
+#
+# ⚠ 形态说明（v0.5.0-rc.3 起「双形态」）：
+#   ① Cordis bundle 形态（本文件 + package.json 的 dsh.bundle.patch + main=src/index.js）
+#      —— DSH 0.2.0 实际支持的装载路径；
+#   ② dsh-std 标准形态（dsh-plugin.json + std-facet.js，见 exports["./std-facet"]）
+#      —— 协议生态路径，等宿主内置该装载器后启用，两者并存互不干扰。
+- insert:
+    - id: vision-exp-tile
+      name: 'vision-exp-tile'

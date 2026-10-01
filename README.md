@@ -6,14 +6,14 @@
 
 各位随意取用：有问题可以提交 **Issue**（如果能自己改的话就更好了——你提交了 Issue，我也只能给 DeepSeek 看然后让他自己改；我本人尝试过多次，均未学会任何写代码的能力，也是乘上 **AI** 的东风，让我有了开发插件的能力）。
 
-> **本次更新（v0.5.0-rc.2）· 取消 picturereader 适配（阶段二首项）**，内容：
-> ① **彻底移除 v0.4.2 的 picturereader 适应性优化**（用户决定取消该适配）：删除共存探测、工具描述里的分工引导段、对其 settings.yaml 分区的 `vlm_base`/`vlm_model` 配置继承、以及 venv 复用分支——本插件**完全独立运行**，工具 description 恒为基线文本，视觉端点一律取本插件自己的配置（`~/.dsh/vision-exp-tile.json` 或环境变量）。
-> ② 附带修正：原「venv 复用」经实证为**死逻辑**（own 与 peer 路径恒等，都是 `$HOME/paddle_venv`、`$HOME/rapid_venv`），删除后行为零变化。
-> ③ 「分工引导」取消后，模型选工具只依据各工具自身描述；大图/批量仍用本插件的 `vision_tile_*`。
-> ④ **测试**：`npm test` **166/166** 全绿 + 标准 facet 冒烟全过（删去适配相关 17 项断言）。
+> **本次更新（v0.5.0-rc.3）· 双形态：跟随 DSH 0.2.0 的装载机制**，内容：
+> ① **恢复 Cordis bundle 声明**（`dsh.bundle.patch` → `cordis.patch.yml`，`main` 指回 `src/index.js`）——实测 DSH **0.2.0-rc.2 的插件装载机制仍是 Cordis bundle + `dsh.profile.bundles` 白名单**（宿主程序内无 dsh-std 生态装载器），而 rc.2 之前的纯标准形态**不被宿主识别**，故补回这一声明让插件能在当前宿主上装载。
+> ② **同时保留 dsh-std 标准形态**（`dsh-plugin.json` + `std-facet.js`，作为 `exports["./std-facet"]` 子导出）——等 DSH 主线内置该装载器后可直接启用，无需再改。
+> ③ **新增 Cordis 入口冒烟** `scripts/cordis-entry-smoke.mjs`（18 项断言：apply 注册 3 工具 / 双形态声明齐备 / patch 结构有效），`npm run smoke` 现在同时跑标准入口与 Cordis 入口两套。
+> ④ 插件**不声明任何 `@deepseek-ai/*` 运行时依赖**（入口只用 `node:` 内置与相对模块）→ 不会触发 0.2.0 新增的「插件-宿主版本兼容性校验」冲突。
 >
-> **上一版（v0.5.0-rc.1）· 生态化改造（阶段一）**：加入 dsh-std 协议生态——新增 `dsh-plugin.json`（manifest v0.15）+ `std-facet.js`（标准 Host Facet），三个工具经 `tools.dsh/v1alpha1` 协议发布为 Tool 资源，由宿主侧 `@dsh-std/adapter-dsh` 装载（不再依赖 Cordis bundle / `cordis.patch.yml` / 任何 `@deepseek-ai/*` 宿主包）；设置文件化至 `~/.dsh/vision-exp-tile.json`（首次自动迁移旧 settings.yaml 分区）；相对 `out_dir` 基准改为「源图所在目录」。
-> > ⚠ 装配实测结论（2026-10-07：受阻·待上游 adapter 适配 0.1.7）见下文「安装与挂载」。
+> **上一版（v0.5.0-rc.2）· 取消 picturereader 适配（阶段二首项）**：彻底移除 v0.4.2 的共存探测 / 分工引导 / 配置继承 / venv 复用（后者经实证为死逻辑），本插件完全独立运行。
+> **v0.5.0-rc.1 · 生态化改造（阶段一）**：新增 `dsh-plugin.json`（manifest v0.15）+ `std-facet.js`（标准 Host Facet），设置文件化至 `~/.dsh/vision-exp-tile.json`（首次自动迁移旧 settings.yaml 分区），相对 `out_dir` 基准改为「源图所在目录」。
 
 # vision-exp-tile ◆ 为 deepseek-v4-flash-vision-exp 定制的大图智能识图插件
 
@@ -21,7 +21,7 @@
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org)
-[![version](https://img.shields.io/badge/vision--exp--tile-v0.5.0--rc.2-orange.svg)](#)
+[![version](https://img.shields.io/badge/vision--exp--tile-v0.5.0--rc.3-orange.svg)](#)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-plugin-purple.svg)](#)
 
 > 独立 DSH 插件：**零依赖任何第三方 DSH 插件**（picturereader 等均未使用，仅用纯官方 DSH 服务 + 可选开源 OCR 环境）。把大图切成 **800×800 无损小块**（官方缩放规则的"甜蜜点"：块在模型侧**不被降采样**、每块**≤384 token**），携带**坐标标注 + 分块聚合逻辑**直接调用 DeepSeek 视觉 API 完成识别与聚合，返回结构化答案（**不代为统计/不显示 token 与费用，实际计费以 DeepSeek 官方 API 平台账单为准**）。
@@ -41,24 +41,26 @@
 
 ## 二、安装与挂载
 
-**v0.5.0 起为标准 dsh-std 组件**（不再走 Cordis bundle / `cordis.patch.yml`）：由宿主侧 `@dsh-std/adapter-dsh` 发现并装载 `dsh-plugin.json`，工具经 `tools.dsh/v1alpha1` 协议映射进宿主工具目录。
+**双形态（v0.5.0-rc.3 起）**：插件同时携带两套装载入口，互不干扰——
+
+| 形态 | 声明 | 用途 |
+|---|---|---|
+| **Cordis bundle**（当前可用） | `dsh.bundle.patch` → `cordis.patch.yml`；`main` = `src/index.js` | **DSH 0.2.0 实际支持的装载路径**（宿主按 `dsh.profile.bundles[]` 顺序叠加各 bundle 的 patch） |
+| **dsh-std 标准**（备用） | `dsh-plugin.json` + `std-facet.js`（子导出 `./std-facet`） | 协议生态路径，等宿主内置该装载器后启用，无需改代码 |
 
 ```powershell
-# 1. 复制/链接插件源码到 DSH 插件目录（依赖以 link: 挂载到目标 profile）
-#    ~/.dsh/plugins/vision-exp-tile          ← 插件源码（含 dsh-plugin.json / std-facet.js）
+# 1. 复制/链接插件源码到 DSH 插件目录
+#    ~/.dsh/plugins/vision-exp-tile          ← 插件源码（含 cordis.patch.yml / dsh-plugin.json / std-facet.js）
 
 # 2. 目标 profile ~/.dsh/profiles/<name>/package.json：
 #    "dependencies": { "vision-exp-tile": "link:C:/Users/<你>/.dsh/plugins/vision-exp-tile" }
+#    "dsh": { "profile": { "bundles": [ ...现有项..., "vision-exp-tile" ] } }   ← bundle 形态需进 bundles 白名单
 
-# 3. 宿主需带 dsh-std 适配层（bundles 白名单 + adapter 自身 patch 装载 @dsh-std/adapter-dsh）
-
-# 4. pnpm install + 重启 DSH 生效
+# 3. 在 profile 目录 pnpm install，然后重启 DSH 生效
+#    （DSH 0.2.0 自带插件管理器，也可用它装载与开关）
 ```
 
-> ⚠ **装配实测（2026-10-07，结论：受阻待上游）**：`@dsh-std/adapter-dsh` 在 npm registry 的全部版本（0.1.0-rc1 ~ 0.1.1-rc.3 共 6 版）peer 声明均为 `@deepseek-ai/* <0.1.6`，与宿主 0.1.7-rc.2 不匹配；宿主插件管理页热装时**严格校验 peer 且无忽略选项**（安装直接失败）。按红线不魔改 adapter/dsh-std/宿主本身，故**无法在当前宿主 0.1.7-rc.2 上合法完成本插件的标准装载**——等待上游 adapter 发布支持 0.1.7 的版本后，按上述步骤 3/4 回填实测并启用。插件本体（v0.5.0-rc.1 代码侧）已通过单测与冒烟。
-```
-
-> ⚠ **装配实测回填中**：`@dsh-std/adapter-dsh` 在宿主 0.1.7-rc.2 上的装载细节（bundles 项、patch 插入、会话服务兼容性）本轮正在验证，步骤 3 的准确写法见验证结果；阶段一代码侧已全量通过单测与冒烟（`npm test` + `npm run smoke`）。
+> **实测说明（2026-10-01，宿主 0.2.0-rc.2）**：宿主装载机制为「按 `dsh.profile.bundles[]` 顺序，叠加各 bundle 包 `dsh.bundle.patch` 指向的 patch 文件」；宿主程序内**无 dsh-std 生态装载器**（对 app.asar 全量扫描：`tools.dsh` / `dsh-plugin.json` / `dshPlugin` / `@dsh-std` 均 0 命中），故采用上表第一种形态即可用；第二种形态原样保留。本插件**不声明任何 `@deepseek-ai/*` 运行时依赖**（入口只用 `node:` 内置与相对模块），因此不会触发 0.2.0 新增的「插件-宿主版本兼容性校验」。`desktop` profile 由 Electron 应用独占管理，装载请走其插件管理器界面。
 
 **隔离测试**（推荐）：不要直接改正式 web profile，新建测试 profile：
 

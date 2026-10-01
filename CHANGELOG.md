@@ -1,7 +1,30 @@
 # 更新日志（Release Changelog）
 
-> 全部版本记录（v0.1.0 → v0.5.0-rc.2），最新在上；本文件 = GitHub Release 的 changelog 栏（由 .github/workflows/release.yml 自动读取）。
+> 全部版本记录（v0.1.0 → v0.5.0-rc.3），最新在上；本文件 = GitHub Release 的 changelog 栏（由 .github/workflows/release.yml 自动读取）。
 > 注：README 只展示最新一期更新内容（使用者视角）；本文件保留每期完整记录（含历史）。
+
+## v0.5.0-rc.3（双形态 · 跟随 DSH 0.2.0 装载机制）
+
+**触发**：DSH 升级到 **0.2.0-rc.2**（本机注册表实测，2026-09-29 安装；runtime node 24.18.1 / pnpm 11.7.0）。要求插件跟随该版本的装载机制可用。
+
+**实测结论（决定形态取舍的依据）**
+
+1. **0.2.0 的插件机制仍是 Cordis bundle**：宿主程序（app.asar）内自述装载流程为「按 `dsh.profile.bundles` 顺序，读取每个 bundle 包 manifest 的 `dsh.bundle.patch` 指向的 patch 文件，叠加成组合树」——与 0.1.x 同款。
+2. **宿主未内置 dsh-std 生态装载器**：对 asar 全量扫描，`tools.dsh` / `dsh-plugin.json` / `dshPlugin` / `@dsh-std` **均为 0 命中**（`facets` 命中处是 DSH 自身存储后端的术语，与本插件协议无关）。
+3. **新插件管理器（0.2.0 新增）的识别条件**：asar 内文本为「a runtime dependency of the installation that **declares `dsh.bundle.patch`**」→ 只有带该声明的依赖才会被插件管理器接管。
+4. 由此确认 rc.2 及之前删除 `dsh` 字段、只留 `dsh-plugin.json` 的纯标准形态，在当前宿主上**不会被识别、更不会装载**。
+5. 0.2.0 另新增「插件-宿主版本兼容性校验」与官方豁免通道（`dsh plugin allow-version` / 插件管理器内的 exact-version exemption）。
+
+**本版变更（双形态并存）**
+
+- **恢复 Cordis bundle 形态**（当前宿主可用）：新增 `cordis.patch.yml`（`insert` 顶层插入 `id/name = vision-exp-tile`）；`package.json` 加回 `dsh.bundle.patch`，`main` 与 `exports["."]` 指回 `src/index.js`（导出 `apply` / `name`，即宿主装载入口）；`files` 补 `cordis.patch.yml`。
+- **保留 dsh-std 标准形态**：`dsh-plugin.json` 与 `std-facet.js` 原样保留，后者改为子导出 `exports["./std-facet"]`——等宿主内置生态装载器后可直接启用，无需再改代码。
+- **不声明任何 `@deepseek-ai/*` 运行时依赖**：入口仍只 import `node:` 内置与相对模块 → 不触发 0.2.0 的版本兼容性校验冲突（这是双形态方案能「干净装载」的关键）。
+- **新增 Cordis 入口冒烟** `scripts/cordis-entry-smoke.mjs`（18 项断言：`apply` 注册 3 个工具且名字正确、清理函数可执行、`main`/`exports`/`dsh.bundle.patch`/`files` 声明齐备、`cordis.patch.yml` 结构有效、`dsh-plugin.json` 与 `std-facet.js` 并存）；`npm run smoke` 现同时跑两套入口冒烟（`smoke:std` / `smoke:cordis` 可单独跑）。该脚本隔离 `DSH_HOME` 到临时目录，不触碰真实配置。
+
+**验证**：`npm test` **166/166** 全绿；`npm run smoke` = 标准入口 15/15 + Cordis 入口 18/18 全过。
+
+**待办（需宿主侧实测）**：在 DSH 0.2.0 的插件管理器中装入本插件（link 依赖已在 profile），确认 `vision_tile_split` / `vision_tile_recognize` / `vision_region_crop` 出现在工具目录——装配结果回填本节。
 
 ## v0.5.0-rc.2（取消 picturereader 适配 · 阶段二首项）
 
