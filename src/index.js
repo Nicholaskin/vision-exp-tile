@@ -29,8 +29,9 @@ import { recognize, previewImage, recognizeRegion } from './vision-client.js';
 import { runPipeline } from './pipeline.js';
 import { cleanupOldTempArtifacts } from './temp-cleanup.js';
 import { normalizeConfig } from './config.js';
-import { setRuntimeSource, getRuntimeConfig } from './runtime.js';
+import { setRuntimeSource, getRuntimeConfig, normalizeFromSettings } from './runtime.js';
 import { probeDevice, deviceProfileText } from './device.js';
+import { pickOverrides } from './plugin-config.js';
 import { initFileSettings, syncSettingEnv, setSetting, readSnapshot } from './settings-file.js';
 import { openImageSource, outDirBase } from './host-io.js';
 
@@ -49,6 +50,15 @@ export const name = 'vision-exp-tile';
  *  - 旧版还用过 `settings` 服务：设置已文件化（~/.dsh/vision-exp-tile.json），无需该服务。
  */
 export const inject = ['tools'];
+
+/**
+ * 插件配置 schema（宿主设置页据此投影出可编辑表单）。
+ *
+ * Cordis 会读本导出做配置校验；标 `.volatile()` 的字段进入 DSH 0.2.0 的设置页，
+ * 用户保存后写入 profile 的 Cordis patch 并回传到 `apply(ctx, config)`。
+ * 具体字段与设计取舍见 src/plugin-config.js。
+ */
+export { Config } from './plugin-config.js';
 
 /** 单张图片文件读取字节上限（512 MiB，大图足够）。 */
 const IMAGE_BYTE_CAP = 512 * 1024 * 1024;
@@ -1007,14 +1017,19 @@ export function apply(ctx, configRaw) {
     };
   });
 
-  // ── v0.5.0：设置文件化（替代旧宿主 settings 命名空间注册）──
-  // 设置持久化到 <DSH_HOME 或 ~/.dsh>/vision-exp-tile.json（settings-file.js）；
-  // 首次初始化自动迁移旧 settings.yaml 的 vision-exp-tile 分区；读取惰性
-  // （mtime 缓存 + 文件变化即热生效），不再依赖宿主 dsh-settings 服务。
+  // ── 设置来源：配置文件 + 宿主设置页（v0.5.0-rc.4 起为双来源）──
+  // ① 配置文件：<DSH_HOME 或 ~/.dsh>/vision-exp-tile.json（settings-file.js）——
+  //    首次初始化自动迁移旧 settings.yaml 的 vision-exp-tile 分区，读取惰性、热生效；
+  // ② 宿主设置页：DSH 0.2.0 的设置机制把插件 Config 的 volatile 字段（见
+  //    src/plugin-config.js）投影成 Web 表单，用户保存后写入 profile 的 Cordis
+  //    patch，并经 configRaw 传回本函数——**其优先级高于配置文件**（设置页是覆盖层）。
+  // 两者合并后交给同一套归一化流程（normalizeFromSettings），键名同为 snake_case。
   try {
-    // initFileSettings 返回 sourceGetter（文件快照 → normalizeFromSettings），
-    // 内部已完成：旧分区一次性迁移 + 初始 env 同步（applySettingsEnv）。
-    sourceGetter = initFileSettings();
+    // initFileSettings 负责：旧分区一次性迁移 + 初始 env 同步（applySettingsEnv）。
+    // 注意不直接采用它返回的 getter——下面用「文件快照 + 设置页覆盖」自行组装。
+    initFileSettings();
+    const overrides = pickOverrides(configRaw);
+    sourceGetter = () => normalizeFromSettings({ ...readSnapshot(), ...overrides });
 
     // v0.4.1 扩展延续：异步设备探测完成后，按 auto 档位重新应用 env
     // （slow/省电/平台降级/慢网等推荐统一合并后落地），并幂等回写只读设备画像。

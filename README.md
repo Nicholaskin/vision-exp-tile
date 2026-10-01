@@ -6,14 +6,15 @@
 
 各位随意取用：有问题可以提交 **Issue**（如果能自己改的话就更好了——你提交了 Issue，我也只能给 DeepSeek 看然后让他自己改；我本人尝试过多次，均未学会任何写代码的能力，也是乘上 **AI** 的东风，让我有了开发插件的能力）。
 
-> **本次更新（v0.5.0-rc.3）· 双形态：跟随 DSH 0.2.0 的装载机制**，内容：
-> ① **恢复 Cordis bundle 声明**（`dsh.bundle.patch` → `cordis.patch.yml`，`main` 指回 `src/index.js`）——实测 DSH **0.2.0-rc.2 的插件装载机制仍是 Cordis bundle + `dsh.profile.bundles` 白名单**（宿主程序内无 dsh-std 生态装载器），而 rc.2 之前的纯标准形态**不被宿主识别**，故补回这一声明让插件能在当前宿主上装载。
-> ② **同时保留 dsh-std 标准形态**（`dsh-plugin.json` + `std-facet.js`，作为 `exports["./std-facet"]` 子导出）——等 DSH 主线内置该装载器后可直接启用，无需再改。
-> ③ **新增 Cordis 入口冒烟** `scripts/cordis-entry-smoke.mjs`（18 项断言：apply 注册 3 工具 / 双形态声明齐备 / patch 结构有效），`npm run smoke` 现在同时跑标准入口与 Cordis 入口两套。
-> ④ 插件**不声明任何 `@deepseek-ai/*` 运行时依赖**（入口只用 `node:` 内置与相对模块）→ 不会触发 0.2.0 新增的「插件-宿主版本兼容性校验」冲突。
+> **本次更新（v0.5.0-rc.4）· 设置界面回归（按 DSH 0.2.0 新设置机制重写）**，内容：
+> ① **Web 设置页回来了**：DSH 0.2.0 把设置机制整体换代（旧版用的 `settingsScope` 接口**已被移除**，故旧设置页无法继续使用）。新页面按 0.2.0 机制重写——在 Web 侧栏 **「插件」页**里出现「**图像分块识别**」设置卡片，可改：视觉 API 地址 / 密钥环境变量名 / 模型 / 输出 token 上限 / 切块边长 / 切块阈值 / 交叠像素 / 块格式 / jpeg 质量 / 布局参考图开关 / 本地 OCR 引擎 / 输出目录，**改完点「保存」即时生效**（可「全部恢复默认」）。
+> ② **配置来源优先级**：设置页填写值 > 配置文件 `~/.dsh/vision-exp-tile.json` > 环境变量 > 内置默认（设置页留空即回落下一层，所以两种方式可混用）。
+> ③ **其余高级项**（并发、预处理、设备档位、OCR 池等）暂仍通过配置文件或环境变量设置，后续版本会逐步搬进设置页。
+> ④ **验证**：`npm test` **168/168**；三套冒烟全过（标准 facet 入口 / Cordis 入口 / **新增的选择页冒烟**——含「界面字段 ↔ 配置字段双向一致性」断言，防止以后加了配置项忘记加界面）。
 >
-> **上一版（v0.5.0-rc.2）· 取消 picturereader 适配（阶段二首项）**：彻底移除 v0.4.2 的共存探测 / 分工引导 / 配置继承 / venv 复用（后者经实证为死逻辑），本插件完全独立运行。
-> **v0.5.0-rc.1 · 生态化改造（阶段一）**：新增 `dsh-plugin.json`（manifest v0.15）+ `std-facet.js`（标准 Host Facet），设置文件化至 `~/.dsh/vision-exp-tile.json`（首次自动迁移旧 settings.yaml 分区），相对 `out_dir` 基准改为「源图所在目录」。
+> **上一版（v0.5.0-rc.3）· 双形态：跟随 DSH 0.2.0 的装载机制**：恢复 `dsh.bundle.patch`（→ `cordis.patch.yml`，`main` 指回 `src/index.js`）让插件能在 0.2.0 上被识别装载；同时保留 dsh-std 标准形态（`dsh-plugin.json` + `std-facet.js`）备用；不声明任何 `@deepseek-ai/*` 运行时依赖，避开版本兼容校验。
+> **v0.5.0-rc.2 · 取消 picturereader 适配（阶段二首项）**：彻底移除共存探测 / 分工引导 / 配置继承 / venv 复用，本插件完全独立运行。
+> **v0.5.0-rc.1 · 生态化改造（阶段一）**：新增 `dsh-plugin.json`（manifest v0.15）+ `std-facet.js`，设置文件化至 `~/.dsh/vision-exp-tile.json`（自动迁移旧 settings.yaml 分区），相对 `out_dir` 基准改为「源图所在目录」。
 
 # vision-exp-tile ◆ 为 deepseek-v4-flash-vision-exp 定制的大图智能识图插件
 
@@ -21,7 +22,7 @@
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org)
-[![version](https://img.shields.io/badge/vision--exp--tile-v0.5.0--rc.3-orange.svg)](#)
+[![version](https://img.shields.io/badge/vision--exp--tile-v0.5.0--rc.4-orange.svg)](#)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-plugin-purple.svg)](#)
 
 > 独立 DSH 插件：**零依赖任何第三方 DSH 插件**（picturereader 等均未使用，仅用纯官方 DSH 服务 + 可选开源 OCR 环境）。把大图切成 **800×800 无损小块**（官方缩放规则的"甜蜜点"：块在模型侧**不被降采样**、每块**≤384 token**），携带**坐标标注 + 分块聚合逻辑**直接调用 DeepSeek 视觉 API 完成识别与聚合，返回结构化答案（**不代为统计/不显示 token 与费用，实际计费以 DeepSeek 官方 API 平台账单为准**）。

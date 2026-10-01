@@ -1,15 +1,20 @@
 /**
- * client-bundle.test.js — client.js 浏览器 bundle 冒烟断言（只读文件正则 + 纯逻辑模拟）
+ * client-bundle.test.js — client.js（Web 设置页 bundle）结构冒烟断言
  *
- * 用 fs 读 client.js 做结构冒烟检查，不执行浏览器环境：
- *  - client.js 存在且是 ModuleLoader 格式（含 window.__ModuleLoader__.load）。
- *  - exports 了 apply / inject。
- *  - 注册了 settings.section 分区，id="vision-exp-tile"、order=35、label=nav。
- *  - enum 字段「显示值(options)↔真实值(mapOptions)」按索引一一对应（小写落盘）。
- * 由于 client.js 是浏览器 bundle 无法在 node 直接执行，enum 映射以「从源码解析字段
- * 定义 + 复现同款映射函数」的方式做纯逻辑验证，保证保存写入小写、展示按真实值反查。
+ * 背景：v0.5.0-rc.4 起 client.js 按 **DSH 0.2.0 的新设置机制**重写
+ * （旧版的 ctx.settingsScope 通道在 0.2.0 已被移除），因此本测试也随之一并改写：
+ * 只做「源码级结构断言」（client.js 是浏览器 bundle，node 侧由
+ * scripts/client-settings-smoke.mjs 用 vm 模拟环境做执行级验证）。
+ *
+ * 断言面：
+ *  1. ModuleLoader 工厂格式，且 id 必须等于包名（宿主按此 id 装载客户端模块）；
+ *  2. 工厂返回 { inject, apply }，inject 含 slots / configForms；
+ *  3. 注册进插件页 slot `plugins.item`，条目 id = 包名；
+ *  4. 数据通道用 ctx.configForms.get('<包名>')（profile 条目 id）；
+ *  5. **不 require 任何宿主客户端 UI 包**（官方明确劝阻第三方插件这样做）；
+ *  6. 不再出现已被移除的 settingsScope API；
+ *  7. 自绘控件（inline style 注入 + 自行渲染 input/select/checkbox），不依赖 UI 包组件。
  */
-
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
@@ -18,142 +23,74 @@ import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const clientPath = join(__dirname, '..', 'client.js');
+const pkgPath = join(__dirname, '..', 'package.json');
 
-/* ------------------------------------------------------------------ */
-/* 纯逻辑：复现 client.js 的 enum 映射函数（用于验证字段定义与行为）       */
-/* ------------------------------------------------------------------ */
+const src = existsSync(clientPath) ? readFileSync(clientPath, 'utf8') : '';
+// 剥离注释后再做「不含某某」类断言——注释里可能只是提及旧 API 的名字（用于说明改造原因）
+const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+const ENTRY_ID = pkg.name; // 包名 = profile 条目 id
 
-function indexForReal(f, realValue) {
-  const rv = String(realValue ?? '');
-  for (let i = 0; i < f.real.length; i += 1) if (String(f.real[i]) === rv) return i;
-  for (let j = 0; j < f.display.length; j += 1) if (String(f.display[j]) === rv) return j;
-  return 0;
-}
-function realFromDisplay(f, displayValue) {
-  const dv = String(displayValue ?? '');
-  for (let i = 0; i < f.display.length; i += 1) if (String(f.display[i]) === dv) return f.real[i];
-  return dv;
-}
-function saveValue(realValue) {
-  const rv = String(realValue ?? '');
-  return /^\d+$/.test(rv) ? Number(rv) : rv;
-}
-
-// 从 client.js 源码解析出枚举字段 { key, display[], real[] }。
-function parseEnumFields(src) {
-  const out = [];
-  for (const line of src.split('\n')) {
-    if (!line.includes('type: "enum"') || !line.includes('mapOptions:')) continue;
-    const key = line.match(/key:\s*"([^"]+)"/)?.[1];
-    const optRaw = line.match(/options:\s*OPT\(\[([\s\S]*?)\],/)?.[1];
-    const realRaw = line.match(/mapOptions:\s*\[([\s\S]*?)\]/)?.[1];
-    if (!key || !optRaw || !realRaw) continue;
-    const quoted = (s) => [...s.matchAll(/"([^"]*)"/g)].map((m) => m[1]);
-    out.push({ key, display: quoted(optRaw), real: quoted(realRaw) });
-  }
-  return out;
-}
-
-/* ------------------------------------------------------------------ */
-/* 测试                                                                 */
-/* ------------------------------------------------------------------ */
-
-test('client.js 存在', () => {
-  assert.ok(existsSync(clientPath), 'client.js 应存在');
+test('client.js 存在且为 ModuleLoader 工厂格式', () => {
+  assert.ok(src.length > 0, 'client.js 应存在且非空');
+  assert.match(src, /window\.__ModuleLoader__\.load\(\{/);
+  assert.match(src, /factory\s*\(require\)\s*\{/);
+  // 浏览器 bundle 不应用 ESM 语法导出
+  assert.doesNotMatch(src, /^\s*export\s/m);
 });
 
-test('client.js 是 ModuleLoader bundle（含 __ModuleLoader__.load）', () => {
-  const src = readFileSync(clientPath, 'utf8');
-  assert.match(src, /window\.__ModuleLoader__\.load\s*\(\s*\{/);
-  assert.match(src, /id:\s*["']vision-exp-tile["']/);
+test('client.js 的模块 id 等于包名（宿主按 id 装载客户端模块）', () => {
+  const m = src.match(/id:\s*'([^']+)'/);
+  assert.ok(m, '应声明 id');
+  assert.equal(m[1], ENTRY_ID);
 });
 
-test('client.js 导出 apply 与 inject（module.exports 格式）', () => {
-  const src = readFileSync(clientPath, 'utf8');
-  assert.match(src, /exports\.apply\s*=\s*apply/);
-  assert.match(src, /exports\.inject\s*=\s*inject/);
-  // inject 应请求 slots / locale / settingsScope
-  assert.match(src, /["']slots["']/);
-  assert.match(src, /["']locale["']/);
-  assert.match(src, /["']settingsScope["']/);
+test('client.js 声明 inject = [slots, configForms] 并返回 apply', () => {
+  assert.match(src, /inject:\s*\[[^\]]*'slots'[^\]]*\]/);
+  assert.match(src, /inject:\s*\[[^\]]*'configForms'[^\]]*\]/);
+  assert.match(src, /apply\(ctx\)/);
 });
 
-test('client.js 注册 settings.section 分区（id / order / label / locale）', () => {
-  const src = readFileSync(clientPath, 'utf8');
-  assert.match(src, /settings\.section/);
-  assert.match(src, /id:\s*["']vision-exp-tile["']/);
-  assert.match(src, /order:\s*35/);
-  assert.match(src, /label:\s*function\s*\(\)\s*\{\s*return\s*t\(["']nav["']\)/);
-  assert.match(src, /locale:\s*NS/);
+test('client.js 注册进插件页 slot plugins.item，条目 id = 包名', () => {
+  assert.match(src, /ctx\.slots\.inject\('plugins\.item'/);
+  assert.match(src, /name:\s*'plugins\.item'/);
+  assert.match(src, new RegExp(`id:\\s*ENTRY_ID|id:\\s*'${ENTRY_ID}'`));
 });
 
-test('client.js 含中文「图像识别」与英文「Image Recognition」字典', () => {
-  const src = readFileSync(clientPath, 'utf8');
-  assert.match(src, /图像识别/);
-  assert.match(src, /Image Recognition/);
+test('client.js 通过 configForms.get(包名) 读写配置（0.2.0 设置通道）', () => {
+  assert.match(src, /ctx\.configForms\.get\(/);
+  assert.match(src, new RegExp(`ENTRY_ID\\s*=\\s*'${ENTRY_ID}'`));
 });
 
-/* ------------------------------------------------------------------ */
-/* enum 映射「显示值 ↔ 真实值」校验                                       */
-/* ------------------------------------------------------------------ */
+test('client.js 不 require 任何宿主客户端 UI 包（官方劝阻第三方插件这样做）', () => {
+  const hostRequires = [...code.matchAll(/require\('(@deepseek-ai\/[^']+)'\)/g)].map((m) => m[1]);
+  assert.deepEqual(hostRequires, [], `不应 require 宿主包，实际：${hostRequires.join(', ')}`);
+  // 只允许 require('react')（浏览器模块表提供）
+  const requires = [...code.matchAll(/require\('([^']+)'\)/g)].map((m) => m[1]);
+  assert.ok(requires.every((r) => r === 'react'), `仅允许 require('react')，实际：${requires.join(', ')}`);
+});
 
-test('enum 字段均声明 mapOptions，且显示值/真实值等长、真实值为小写', () => {
-  const src = readFileSync(clientPath, 'utf8');
-  const fields = parseEnumFields(src);
-  // 覆盖规格列出的全部 enum 字段
-  const expectedKeys = ['ocr_engine', 'preprocess', 'handwrite_route', 'upgrade', 'format', 'mode', 'rotate', 'gpu_provider', 'performance_tier', 'platform_fallback'];
-  assert.deepEqual(fields.map((f) => f.key), expectedKeys);
-  for (const f of fields) {
-    assert.equal(f.display.length, f.real.length, `字段 ${f.key} 的 options 与 mapOptions 应等长`);
-    assert.ok(f.real.length > 0, `字段 ${f.key} 应有非空 mapOptions`);
-    // 真实值应为小写（数字枚举 rotate 除外）
-    if (f.key !== 'rotate') {
-      for (const r of f.real) {
-        assert.equal(r, r.toLowerCase(), `字段 ${f.key} 的真实值应小写：${r}`);
-      }
-    }
+test('client.js 不再使用已被 0.2.0 移除的 settingsScope API', () => {
+  assert.doesNotMatch(code, /settingsScope/);
+});
+
+test('client.js 自绘控件（不依赖 UI 包组件）：注入样式 + 原生表单元素', () => {
+  assert.match(src, /React\.createElement|const h = React\.createElement/);
+  assert.match(src, /h\('style'/);
+  assert.match(src, /type:\s*'checkbox'/);
+  assert.match(src, /h\('select'/);
+});
+
+test('client.js 的字段键全部是 snake_case（与配置文件 / Config 一致）', () => {
+  const keys = [...src.matchAll(/\{\s*key:\s*'([a-z0-9_]+)'/g)].map((m) => m[1]);
+  assert.ok(keys.length >= 10, `字段数应 >= 10，实际 ${keys.length}`);
+  for (const key of keys) {
+    assert.match(key, /^[a-z][a-z0-9_]*$/, `字段键应为 snake_case：${key}`);
   }
 });
 
-test('enum 映射：保存时 显示值→真实值(小写落盘)，展示时 真实值→显示项', () => {
-  const src = readFileSync(clientPath, 'utf8');
-  const fields = parseEnumFields(src);
-  const byKey = Object.fromEntries(fields.map((f) => [f.key, f]));
-
-  // 字符串枚举：ocr_engine 显示 'Auto' → 真实 'auto'，保存为字符串 'auto'
-  const ocr = byKey.ocr_engine;
-  assert.equal(realFromDisplay(ocr, 'Auto'), 'auto');
-  assert.equal(saveValue(realFromDisplay(ocr, 'Auto')), 'auto');
-  // 展示反查：真实 'paddle' → 显示项 'Paddle'
-  assert.equal(ocr.display[indexForReal(ocr, 'paddle')], 'Paddle');
-
-  // 数字枚举：rotate 显示 '90' → 真实 '90' → 保存为 number 90
-  const rot = byKey.rotate;
-  assert.equal(realFromDisplay(rot, '90'), '90');
-  assert.equal(saveValue(realFromDisplay(rot, '90')), 90);
-  // 展示反查：真实 '180' → 显示项 '180'
-  assert.equal(rot.display[indexForReal(rot, '180')], '180');
-
-  // 全部字段 round-trip：display[i] → real[i] → display[i]（显示值必须能往返）
-  for (const f of fields) {
-    for (let i = 0; i < f.display.length; i += 1) {
-      const real = realFromDisplay(f, f.display[i]);
-      assert.equal(real, f.real[i], `字段 ${f.key} 显示值 ${f.display[i]} 应映射到真实值 ${f.real[i]}`);
-      assert.equal(f.display[indexForReal(f, real)], f.display[i], `字段 ${f.key} 真实值 ${real} 应反查回显示值 ${f.display[i]}`);
-    }
-  }
-});
-
-test('client.js 的保存/展示路径已接线到 enum 映射函数', () => {
-  const src = readFileSync(clientPath, 'utf8');
-  // 定义了三个映射助手
-  assert.match(src, /function\s+enumIndexForReal\s*\(/);
-  assert.match(src, /function\s+enumRealFromDisplay\s*\(/);
-  assert.match(src, /function\s+enumSaveValue\s*\(/);
-  // 保存分支调用 enumRealFromDisplay + enumSaveValue
-  assert.match(src, /enumRealFromDisplay\s*\(\s*f\s*,\s*str\s*\)/);
-  assert.match(src, /enumSaveValue\s*\(\s*f\s*,\s*realVal\s*\)/);
-  // 渲染分支反查显示下标 enumIndexForReal，且 onChange 用 enumRealFromDisplay 归一化真实值
-  assert.match(src, /enumIndexForReal\s*\(\s*f\s*,\s*fieldDraft\s*\(\s*f\s*\)\s*\)/);
-  assert.match(src, /enumRealFromDisplay\s*\(\s*f\s*,\s*e\.target\.value\s*\)/);
+test('package.json 声明 dsh.client（platform=web）与 ./client 导出', () => {
+  assert.equal(pkg.dsh?.client?.platform, 'web');
+  assert.equal(pkg.exports?.['./client'], './client.js');
+  assert.ok(Array.isArray(pkg.files) && pkg.files.includes('client.js'), 'files 应含 client.js');
 });

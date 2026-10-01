@@ -1,7 +1,28 @@
 # 更新日志（Release Changelog）
 
-> 全部版本记录（v0.1.0 → v0.5.0-rc.3），最新在上；本文件 = GitHub Release 的 changelog 栏（由 .github/workflows/release.yml 自动读取）。
+> 全部版本记录（v0.1.0 → v0.5.0-rc.4），最新在上；本文件 = GitHub Release 的 changelog 栏（由 .github/workflows/release.yml 自动读取）。
 > 注：README 只展示最新一期更新内容（使用者视角）；本文件保留每期完整记录（含历史）。
+
+## v0.5.0-rc.4（设置界面回归 · 按 DSH 0.2.0 新设置机制重写）
+
+**问题**：v0.5.0 起的版本没有设置页——旧版（v0.4.x）的 Web 设置分区消失了，用户只能手工编辑 `~/.dsh/vision-exp-tile.json`。
+
+**根因（实测）**：DSH 0.2.0 **整体换代了设置机制**——
+
+1. 旧版设置页依赖客户端接口 `ctx.settingsScope.bind(...)`：对宿主程序（app.asar）全量扫描，`settingsScope` **0 命中**（该 API 已被移除）；旧页面自动挂载的 `settings.section` 槽虽仍在，但拿不到数据通道。
+2. 新机制 = **插件 Config 的 volatile 字段投影**：`@deepseek-ai/dsh-settings` 只展示「活动且可唯一定位的 profile 条目中的 volatile 字段」，客户端用 `ctx.configForms.get(<profile 条目 id>)` 读写，写入经 Host 校验后持久化到 profile 的 Cordis patch。
+3. 客户端页面**必须插件自己写**（官方文档原话：autoGenerate「目前没有已发布的客户端这样做」；官方四个设置页各配一个客户端包），且官方明确**劝阻第三方插件 require 宿主客户端 UI 包**（`@deepseek-ai/dsh-client-ui-*`）——控件需自绘。
+
+**本版实现**
+
+- **服务端**：新增 `src/plugin-config.js` —— 导出 `Config`（schemastery schema），12 个字段全部 `.volatile()` 且**不设默认值**（未填写 = undefined → 回落配置文件/环境变量/内置默认，从而使设置页成为「覆盖层」而非唯一真源）；`src/index.js` 重新导出 `Config`，并在 `apply` 中把设置页传入的 `configRaw` 经 `pickOverrides()` 过滤后并入配置链：`sourceGetter = () => normalizeFromSettings({ ...readSnapshot(), ...overrides })`。
+- **客户端**：`client.js` 按官方模板（`templates/decoration`）与官方设置页范例重写 —— `window.__ModuleLoader__.load({ id: 'vision-exp-tile', factory })` 手写 bundle（无构建步骤）；`inject: ['slots','configForms']`；把「图像分块识别」卡片注册进插件页 `plugins.item` slot（`ctx.slots.inject` + `ctx.slots.register`）；表单自绘（12 个字段：text/number/select/checkbox），支持**暂存 → 保存 / 放弃改动 / 全部恢复默认**，并显示可写状态与保存结果；**不 require 任何宿主包**（仅 `react`，由浏览器模块表提供）。
+- **声明**：`package.json` 增加 `dsh.client`（`platform: web`，inject 声明 `@deepseek-ai/dsh-client-ui-settings` 与 `...-ui-plugin-manager` 仅用于激活顺序）、`exports["./client"]`、`files` 收录 `client.js`。
+- **测试**：`tests/client-bundle.test.js` 按新结构重写（10 项：ModuleLoader 格式 / id=包名 / inject 服务 / plugins.item 注册 / configForms 通道 / 不 require 宿主包 / 不含已移除 API（**断言前先剥离注释**，避免注释里提及旧 API 名导致假红）/ 自绘控件 / 字段键 snake_case / package.json 声明）；新增 `scripts/client-settings-smoke.mjs`（19 项，`node:vm` 造浏览器环境真实执行 client.js：注册行为、渲染不抛、**界面字段 ↔ Config 字段双向一致**，防「加了配置忘加界面」的漂移）。
+
+**验证**：`npm test` **168/168**；`npm run smoke` = 标准 facet 入口 15/15 + Cordis 入口 19/19 + 客户端设置页 19/19 全过。
+
+**待宿主实测**：重启 DSH 后，Web 侧栏「插件」页应出现「图像分块识别」卡片，可编辑并保存上述 12 项，保存后立即生效——结果回填本节。
 
 ## v0.5.0-rc.3（双形态 · 跟随 DSH 0.2.0 装载机制）
 
