@@ -6,11 +6,13 @@
 
 各位随意取用：有问题可以提交 **Issue**（如果能自己改的话就更好了——你提交了 Issue，我也只能给 DeepSeek 看然后让他自己改；我本人尝试过多次，均未学会任何写代码的能力，也是乘上 **AI** 的东风，让我有了开发插件的能力）。
 
-> **本次更新（v0.5.0-rc.1）· 生态化改造（阶段一）**，内容：
-> ① **加入 dsh-std 协议生态**（dsh-ecosystem-spec）：新增 `dsh-plugin.json`（manifest v0.15）+ `std-facet.js`（标准 Host Facet），三个工具经 `tools.dsh/v1alpha1` 协议发布为 Tool 资源，由宿主侧 `@dsh-std/adapter-dsh` 装载——**不再依赖 Cordis bundle / `cordis.patch.yml` / 任何 `@deepseek-ai/*` 宿主包**。
-> ② **设置文件化**：设置从宿主 settings 服务迁至独立配置文件 `~/.dsh/vision-exp-tile.json`（首次自动迁移旧 settings.yaml 分区；热生效；环境变量覆盖保留）。
-> ③ **相对 `out_dir` 基准变更**：显式相对输出目录基准 = 「源图所在目录」（旧：会话 cwd）。
-> ④ **测试**：新增 host-io / settings-file 单测与标准 facet 冒烟（含 manifest 正式校验），`npm test` **183/183** 全绿。
+> **本次更新（v0.5.0-rc.2）· 取消 picturereader 适配（阶段二首项）**，内容：
+> ① **彻底移除 v0.4.2 的 picturereader 适应性优化**（用户决定取消该适配）：删除共存探测、工具描述里的分工引导段、对其 settings.yaml 分区的 `vlm_base`/`vlm_model` 配置继承、以及 venv 复用分支——本插件**完全独立运行**，工具 description 恒为基线文本，视觉端点一律取本插件自己的配置（`~/.dsh/vision-exp-tile.json` 或环境变量）。
+> ② 附带修正：原「venv 复用」经实证为**死逻辑**（own 与 peer 路径恒等，都是 `$HOME/paddle_venv`、`$HOME/rapid_venv`），删除后行为零变化。
+> ③ 「分工引导」取消后，模型选工具只依据各工具自身描述；大图/批量仍用本插件的 `vision_tile_*`。
+> ④ **测试**：`npm test` **166/166** 全绿 + 标准 facet 冒烟全过（删去适配相关 17 项断言）。
+>
+> **上一版（v0.5.0-rc.1）· 生态化改造（阶段一）**：加入 dsh-std 协议生态——新增 `dsh-plugin.json`（manifest v0.15）+ `std-facet.js`（标准 Host Facet），三个工具经 `tools.dsh/v1alpha1` 协议发布为 Tool 资源，由宿主侧 `@dsh-std/adapter-dsh` 装载（不再依赖 Cordis bundle / `cordis.patch.yml` / 任何 `@deepseek-ai/*` 宿主包）；设置文件化至 `~/.dsh/vision-exp-tile.json`（首次自动迁移旧 settings.yaml 分区）；相对 `out_dir` 基准改为「源图所在目录」。
 > > ⚠ 装配实测结论（2026-10-07：受阻·待上游 adapter 适配 0.1.7）见下文「安装与挂载」。
 
 # vision-exp-tile ◆ 为 deepseek-v4-flash-vision-exp 定制的大图智能识图插件
@@ -19,7 +21,7 @@
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org)
-[![version](https://img.shields.io/badge/vision--exp--tile-v0.5.0--rc.1-orange.svg)](#)
+[![version](https://img.shields.io/badge/vision--exp--tile-v0.5.0--rc.2-orange.svg)](#)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-plugin-purple.svg)](#)
 
 > 独立 DSH 插件：**零依赖任何第三方 DSH 插件**（picturereader 等均未使用，仅用纯官方 DSH 服务 + 可选开源 OCR 环境）。把大图切成 **800×800 无损小块**（官方缩放规则的"甜蜜点"：块在模型侧**不被降采样**、每块**≤384 token**），携带**坐标标注 + 分块聚合逻辑**直接调用 DeepSeek 视觉 API 完成识别与聚合，返回结构化答案（**不代为统计/不显示 token 与费用，实际计费以 DeepSeek 官方 API 平台账单为准**）。
@@ -221,7 +223,7 @@ dsh web
 | 切块 / 预检 / 兴趣点识别 / 像素网格 | 插件自带（**pixelgrid 自实现，不依赖任何其它插件**） | ✅ 始终可用 |
 | pipeline 本地 OCR | 探测本机 **paddle_venv / rapid_venv**（`$HOME` 下，路径可用 `DSH_PADDLE_PYTHON`/`DSH_RAPID_PYTHON` 覆盖）→ 无则用 **Windows OCR**（WinRT，零依赖） | ✅ 自动降级；仍无 OCR（如 Linux 未装 venv）→ **自动转交视觉 API 转录该区域**，pipeline 不中断 |
 | smart 模式文字识别 | 本插件自带（`vision_region_crop` 视觉直读转录） | ✅ 始终可用，零依赖第三方插件 |
-| **与 picturereader 共存** | 探测其是否在场（注册表工具 `image_scan` / 插件目录双通道） | ✅ 在场时给本插件工具追加分工引导（大图→本插件，小图/文档→picturereader）；复用其已配视觉端点（`vlm_base`/`vlm_model`）与已建 OCR venv（`paddle_venv`/`rapid_venv`）；不在场则行为与无此插件时完全一致，且不改动 picturereader 任何文件 |
+| 其它图像插件 | **无**（v0.5.0 起取消 picturereader 适配） | ✅ 本插件完全独立：不探测其它插件是否在场、不在工具描述追加任何分工引导、不继承其它插件的视觉端点或 venv 配置；也不读改任何第三方插件的文件 |
 
 **结论**：本插件**零依赖任何第三方 DSH 插件**（picturereader 等均未使用）；paddle/rapid 是用户可选安装的开源 OCR 环境（Apache-2.0，仅环境探测，非插件依赖），装了中文转录质量最好，不装也完全可用。
 

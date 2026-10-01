@@ -1,7 +1,23 @@
 # 更新日志（Release Changelog）
 
-> 全部版本记录（v0.1.0 → v0.5.0-rc.1），最新在上；本文件 = GitHub Release 的 changelog 栏（由 .github/workflows/release.yml 自动读取）。
+> 全部版本记录（v0.1.0 → v0.5.0-rc.2），最新在上；本文件 = GitHub Release 的 changelog 栏（由 .github/workflows/release.yml 自动读取）。
 > 注：README 只展示最新一期更新内容（使用者视角）；本文件保留每期完整记录（含历史）。
+
+## v0.5.0-rc.2（取消 picturereader 适配 · 阶段二首项）
+
+**背景**：v0.4.2 曾为「与上游 picturereader 常同实例挂载」做了一套适应性优化（共存探测 + 工具分工引导 + 其配置/venv 复用）。用户决定**取消该适配**，本插件回归完全独立运行——不再关心同实例装了哪些其它图像插件。
+
+**移除内容**（三块，全删）
+
+1. **共存探测 + 工具分工引导（原 A 块）**：删除 `src/picturereader-detector.js`（`isPicturereaderPresent` 双通道探测 / `collabGuideText` / `withCollabIfPresent`）；`src/index.js` 不再按探测结果拼装工具 description，注册回归朴素 `ctx.tools.register(...)`，同时移除原先「首个 apply 探测 + 500/1500ms 复查 + 结果变化后重注册」的竞态处理；`std-facet.js` 里仅服务旧探测的 `tools.get()` 垫片一并删除。→ **三个工具 description 恒为基线文本**。
+2. **配置复用（原 B 块）**：删除 `src/peer-config.js`（`readPeerSettings` 读 settings.yaml 的 `picturereader:` 分区 / `applyPeerDefaults`）；`src/index.js` 不再调用，`src/settings-file.js` 的 `initFileSettings({ peer })` 参数移除（sourceGetter 简化为 `normalizeFromSettings(readSnapshot())`），迁移键表删除 `peer_mode` / `collab_mode`。→ **视觉端点一律取本插件自身配置**（`~/.dsh/vision-exp-tile.json` 的 `base_url`/`model` 或环境变量），不再从 picturereader 分区继承。
+3. **venv 复用（原 C 块）**：删除 `src/ocr-local.js` 的 `peerVenvPython` 与 `resolveVenvPython` 的 peer 分支（优先级简化为「显式 env > 默认 venv > 默认兜底」）。→ **行为零变化**：实证该分支恒为死逻辑（own 与 peer 路径完全相同，均为 `$HOME/paddle_venv`、`$HOME/rapid_venv`）。
+
+**保留**：`src/ocr-local.js` / `src/pixelgrid.js` / `client.js` 中「写法参考自开源项目 picturereader（MIT）」的**代码来源与许可声明**——属署名与合规信息，非运行时适配。
+
+**影响**：① 工具描述不再出现「【与 picturereader 分工】」段；② 若此前依赖 picturereader 分区提供 `vlm_base`/`vlm_model`，升级后需在本插件自己的设置文件/环境变量中显式配置（本机已自配，无影响）；③ 其它功能与 v0.5.0-rc.1 一致。
+
+**验证**：`npm test` **166/166** 全绿（删除 `tests/peer.test.js` 与 settings-file 的 peer 用例，共 -17 项）；`npm run smoke` 标准 facet 冒烟全过（15/15）；活代码残留引用检查 **0 条**（`picturereader-detector` / `peer-config` / `isPicturereaderPresent` / `withCollabIfPresent` / `applyPeerDefaults` / `readPeerSettings` / `peerVenvPython`）。
 
 ## v0.5.0-rc.1（生态化改造 · 阶段一）
 

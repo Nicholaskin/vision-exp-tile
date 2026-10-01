@@ -21,7 +21,6 @@
 import { defineFacet } from '@dsh-std/sdk';
 import { API_VERSION as TOOL_API_VERSION, KIND as TOOL_KIND } from '@dsh-std/tool';
 import { setActiveExecEnv } from './src/host-io.js';
-import { readPeerSettings } from './src/peer-config.js';
 import * as plugin from './src/index.js';
 
 /**
@@ -115,13 +114,6 @@ export default defineFacet((context) => {
           try { unregister(); } catch { /* 忽略 */ }
         };
       },
-      /**
-       * 工具目录探测（旧 isPicturereaderPresent 用）：
-       * 标准 ActivationContext 不提供全量工具目录客户端 → 恒 undefined，
-       * 探测降级为「picturereader 不在场」= description 保持基线（回归红线）。
-       * （picturereader 分工引导段于阶段二经协议目录查询恢复）
-       */
-      get() { return undefined; },
     },
   };
 

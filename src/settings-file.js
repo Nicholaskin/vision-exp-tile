@@ -27,7 +27,6 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, statSync } from 'node:fs';
 import { applySettingsEnv, normalizeFromSettings } from './runtime.js';
-import { applyPeerDefaults } from './peer-config.js';
 
 /** 目标配置键名（取自分区的 snake_case 设置键，旧设置分区可迁移的键全集）。 */
 const TARGET_KEYS = [
@@ -38,7 +37,7 @@ const TARGET_KEYS = [
   'gpu_provider', 'gpu_python', 'gpu_device', 'gpu_fallback',
   'device_benchmark', 'device_power_probe', 'platform_fallback', 'slow_net_adapt',
   'performance_tier', 'ocr_pool_timeout_ms', 'test_timeout_factor',
-  'test_skip_timing', 'device_profile', 'peer_mode', 'collab_mode', 'debug'
+  'test_skip_timing', 'device_profile', 'debug'
 ];
 
 /**
@@ -231,23 +230,22 @@ function migrateLegacySettings() {
 /**
  * 初始化文件化设置（替代旧 ctx.inject(['settings']) 注册段）。
  *
- * @param {object} options
- * @param {object|null} [options.peer] - readPeerSettings() 的结果；用于 peer 默认值复用。
+ * @param {object} [options]
  * @param {Function} [options.onReady] - 可选：probeDevice 异步探测完成后的回调（原逻辑在
  *   scope.watch 内做 env 重应用，本模块改为由调用方在探测完成后调 syncSettingEnv()）。
- * @returns {() => object} sourceGetter —— 返回「最新归一化配置快照」的 getter，
- *   与原 `() => applyPeerDefaults(normalizeFromSettings(scope.get()), peer)` 语义等价。
+ * @returns {() => object} sourceGetter —— 返回「最新归一化配置快照」的 getter。
  */
-export function initFileSettings({ peer = null } = {}) {
+export function initFileSettings({ onReady } = {}) {
+  void onReady; // 保留参数位（调用方当前在探测完成后直接调 syncSettingEnv）
   // 1. 首次迁移旧设置（幂等：配置文件已存在则跳过）。
   migrateLegacySettings();
 
   // 2. 立即同步一次 env（初始设置 → 进程 env），行为与旧 applySettingsEnv(scope.get()) 一致。
   try { applySettingsEnv(readSnapshot()); } catch { /* 忽略 */ }
 
-  // 3. sourceGetter：惰性读取最新文件快照 → 归一化 → peer 默认值覆盖。
+  // 3. sourceGetter：惰性读取最新文件快照 → 归一化。
   //    runtime.js 的 getRuntimeConfig() 每次读取都会调用本 getter，实现文件热生效。
-  return () => applyPeerDefaults(normalizeFromSettings(readSnapshot()), peer);
+  return () => normalizeFromSettings(readSnapshot());
 }
 
 /**

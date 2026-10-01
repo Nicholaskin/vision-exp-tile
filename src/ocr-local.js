@@ -135,49 +135,35 @@ export function _clearVenvHomeForTest() { _venvHomeOverride = null; }
 function venvHome() { return _venvHomeOverride ?? homedir(); }
 
 /**
- * picturereader venv Python 候选（v0.4.2 共享受益）。
- * 实证（上游 picturereader/src/core.js：rapidPython/paddlePython 均用
- * join(homedir(), '<venv>', 'Scripts', 'python.exe')，Windows 固定 Scripts）：
- * 其 rapid/paddle venv 与本插件默认同目录（$HOME/rapid_venv 等），故作为"peer venv 候选"——
- * 若本插件自己的 venv 不存在、但 picturereader 已建好该 venv，则直接复用（失败安全回退）。
- * @param {'rapid'|'paddle'} kind - venv 种类。
- * @returns {string} peer venv python 路径（Windows 风格 Scripts/python.exe；Linux 上多半不存在，会回退）。
- */
-function peerVenvPython(kind) {
-  return join(venvHome(), kind === 'paddle' ? 'paddle_venv' : 'rapid_venv', 'Scripts', 'python.exe');
-}
-
-/**
  * 解析 venv python 路径（纯函数，可选注入 exists 以便单测 mock）。
- * 优先级：显式 env > 本插件默认(own，存在) > peer venv(存在) > 本插件默认(own，兜底失败安全)。
- * @param {object} o - { env, own, peer, exists? }
+ * 优先级：显式 env > 默认 venv（存在）> 默认 venv（兜底失败安全）。
+ * v0.5.0 起**取消 picturereader venv 复用**：原先的 "peer venv 候选" 分支已移除
+ * —— 实证 own 与 peer 路径完全相同（都是 $HOME/<venv 名>），该分支恒为死逻辑。
+ * @param {object} o - { env, own, exists? }
  * @param {string} [o.env] - 用户显式 env（最高优先）。
  * @param {string} o.own - 本插件默认路径。
- * @param {string} o.peer - picturereader venv 候选路径。
  * @param {(p:string)=>boolean} [o.exists] - 存在性判断（默认 existsSync）。
  * @returns {string} 选定的 python 路径。
  */
-export function resolveVenvPython({ env, own, peer, exists = existsSync }) {
+export function resolveVenvPython({ env, own, exists = existsSync }) {
   if (env) return env;
   if (exists(own)) return own;
-  if (exists(peer)) return peer;
-  return own; // 都不可用 → 本插件默认（引擎会失败安全回退 Windows OCR 等）
+  return own; // 不可用 → 本插件默认（引擎会失败安全回退 Windows OCR 等）
 }
 
 /**
  * PaddleOCR venv Python（可移植默认：$HOME/<venv 名>；环境变量 DSH_PADDLE_PYTHON 覆盖）。
  * 例如 Windows 默认 C:\Users\你\paddle_venv\Scripts\python.exe；Linux/macOS 默认 ~/paddle_venv/bin/python3。
- * v0.4.2：本插件默认 venv 缺失时回退到 picturereader 已建好的 paddle_venv（共享）。
  */
 export function paddlePython() {
   const own = venvPython(join(venvHome(), 'paddle_venv'));
-  return resolveVenvPython({ env: process.env.DSH_PADDLE_PYTHON, own, peer: peerVenvPython('paddle') });
+  return resolveVenvPython({ env: process.env.DSH_PADDLE_PYTHON, own });
 }
 
-/** RapidOCR venv Python（同 paddlePython 的可移植约定；DSH_RAPID_PYTHON 覆盖；v0.4.2 共享 peer rapid_venv） */
+/** RapidOCR venv Python（同 paddlePython 的可移植约定；DSH_RAPID_PYTHON 覆盖） */
 export function rapidPython() {
   const own = venvPython(join(venvHome(), 'rapid_venv'));
-  return resolveVenvPython({ env: process.env.DSH_RAPID_PYTHON, own, peer: peerVenvPython('rapid') });
+  return resolveVenvPython({ env: process.env.DSH_RAPID_PYTHON, own });
 }
 
 /**

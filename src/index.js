@@ -31,8 +31,6 @@ import { cleanupOldTempArtifacts } from './temp-cleanup.js';
 import { normalizeConfig } from './config.js';
 import { setRuntimeSource, getRuntimeConfig } from './runtime.js';
 import { probeDevice, deviceProfileText } from './device.js';
-import { isPicturereaderPresent, withCollabIfPresent } from './picturereader-detector.js';
-import { readPeerSettings, applyPeerDefaults } from './peer-config.js';
 import { initFileSettings, syncSettingEnv, setSetting, readSnapshot } from './settings-file.js';
 import { openImageSource, outDirBase } from './host-io.js';
 
@@ -938,19 +936,19 @@ export function createRegionCropTool(ctx, cfg) {
 /* ------------------------------------------------------------------ */
 
 /**
- * 注册本插件三个工具的工具集（v0.4.2）。
- * 每个工具注册前用 withCollabIfPresent 按当前探测结果（picturereader 是否在场）追加分工引导段；
- * 不在场则 description 与基线逐字节一致（回归红线）。
+ * 注册本插件三个工具的工具集。
+ * v0.5.0 起**取消 picturereader 适配**（原 v0.4.2 的共存探测 + 分工引导已移除）：
+ * 不再探测其他插件是否在场、不在 description 追加任何分工段——三个工具的
+ * description 恒为基线文本，与同实例是否安装其他图像插件完全无关。
  * @param {object} ctx - Cordis 上下文（提供 ctx.tools.register）。
  * @param {object} liveCfg - 实时配置 Proxy。
- * @param {boolean} present - picturereader 是否在场。
  * @returns {Array<() => void>} 各工具注册返回的 disposer。
  */
-function registerToolset(ctx, liveCfg, present) {
+function registerToolset(ctx, liveCfg) {
   return [
-    ctx.tools.register(withCollabIfPresent(createSplitTool(ctx, liveCfg), present)),
-    ctx.tools.register(withCollabIfPresent(createRecognizeTool(ctx, liveCfg), present)),
-    ctx.tools.register(withCollabIfPresent(createRegionCropTool(ctx, liveCfg), present))
+    ctx.tools.register(createSplitTool(ctx, liveCfg)),
+    ctx.tools.register(createRecognizeTool(ctx, liveCfg)),
+    ctx.tools.register(createRegionCropTool(ctx, liveCfg))
   ];
 }
 
@@ -970,10 +968,6 @@ function registerToolset(ctx, liveCfg, present) {
 export function apply(ctx, configRaw) {
   // configRaw 可为 undefined，normalizeConfig 负责合并默认并校验。
   const cfg = normalizeConfig(configRaw);
-  // B. peer 配置复用（v0.4.2）：picturereader 已配视觉端点/模型则免重复配置——
-  //    applyPeerDefaults 仅在 baseURL/model 等于默认（未显式）时以 peer 值覆盖；用户显式 > peer > 默认。
-  const peer = readPeerSettings();
-  applyPeerDefaults(cfg, peer);
 
   // ── 运行时快照：工具执行时惰性读最新设置；
   //    sourceGetter 为 null（无 settings 服务或尚未注册）时回退到初始 cfg。──
@@ -991,28 +985,11 @@ export function apply(ctx, configRaw) {
     }
   });
 
-  // ── v0.4.2：picturereader 共存分工引导 ──
-  // 注册时按当前探测结果拼装分工段；延迟 500/1500ms 复查（防插件注册顺序竞态），
-  // 若结果变化且尚无二次注册 → 解除后再 register 一次（仅前 2s 内"裸重注册"，不干扰正常使用）。
+  // ── 工具注册（v0.5.0：取消 picturereader 适配后为朴素注册）──
+  // ctx.effect 内注册，插件卸载时依次 dispose；无延迟复查、无「结果变化后重注册」。
   ctx.effect(() => {
-    let present = isPicturereaderPresent({ toolsApi: ctx.tools });
-    let registered = registerToolset(ctx, liveCfg, present);
-    let rechecked = false;
-    const recheck = () => {
-      if (rechecked) return;
-      rechecked = true;
-      const p2 = isPicturereaderPresent({ toolsApi: ctx.tools });
-      if (p2 !== present) {
-        present = p2;
-        for (const d of registered) { try { d(); } catch { /* 忽略 */ } }
-        registered = registerToolset(ctx, liveCfg, present);
-      }
-    };
-    const t1 = setTimeout(recheck, 500);
-    const t2 = setTimeout(recheck, 1500);
+    const registered = registerToolset(ctx, liveCfg);
     return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
       for (const d of registered) { try { d(); } catch { /* 忽略 */ } }
     };
   });
@@ -1022,9 +999,9 @@ export function apply(ctx, configRaw) {
   // 首次初始化自动迁移旧 settings.yaml 的 vision-exp-tile 分区；读取惰性
   // （mtime 缓存 + 文件变化即热生效），不再依赖宿主 dsh-settings 服务。
   try {
-    // initFileSettings 返回 sourceGetter（文件快照 → normalizeFromSettings → peer 覆盖），
+    // initFileSettings 返回 sourceGetter（文件快照 → normalizeFromSettings），
     // 内部已完成：旧分区一次性迁移 + 初始 env 同步（applySettingsEnv）。
-    sourceGetter = initFileSettings({ peer });
+    sourceGetter = initFileSettings();
 
     // v0.4.1 扩展延续：异步设备探测完成后，按 auto 档位重新应用 env
     // （slow/省电/平台降级/慢网等推荐统一合并后落地），并幂等回写只读设备画像。

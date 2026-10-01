@@ -55,8 +55,8 @@ const YAML = [
   '  ocr_engine: paddle',
   '  device_benchmark: false',
   '  not_a_target: 111',   // 非目标键 → 跳过
-  'picturereader:',
-  '  vlm_base: nope'        // 其他分区 → 不属于本分区
+  'other-plugin:',
+  '  base_url: nope'        // 其他分区 → 不属于本分区
 ].join('\n');
 
 test('parseYamlSection：提取目标键，清洗注释/引号，尊重缩进边界', () => {
@@ -135,23 +135,12 @@ test('initFileSettings：首次运行时从候选 settings.yaml 迁移旧分区'
 test('initFileSettings：配置文件已存在则不再覆盖（幂等）', () => {
   setSetting('base_url', 'https://keep.example/v1');
   writeFileSync(join(process.env.DSH_HOME, 'settings.yaml'), YAML, 'utf8');
-  initFileSettings({ peer: null });
+  initFileSettings();
   assert.equal(readSnapshot().base_url, 'https://keep.example/v1');
 });
 
-test('initFileSettings + peer：用户显式设置的 base_url 不被 peer 覆盖（显式 > peer > 默认）', () => {
-  const home = process.env.DSH_HOME;
-  writeFileSync(join(home, 'settings.yaml'), 'vision-exp-tile:\n  base_url: https://explicit.example/v1\n', 'utf8');
-  // 伪 peer（picturereader 已配视觉端点场景；字段名 = readPeerSettings 输出）
-  const fakePeer = { vlm_base: 'https://peer.example/v1', vlm_model: 'peer-model' };
-  const sourceGetter = initFileSettings({ peer: fakePeer });
-  const cfg = sourceGetter();
-  assert.equal(cfg.baseURL, 'https://explicit.example/v1'); // 显式设置优先，peer 不覆盖
-  assert.equal(cfg.model, 'peer-model'); // model 未显式 → peer 值生效
-});
-
 test('initFileSettings：无旧设置且无配置文件 → 全默认', () => {
-  const sourceGetter = initFileSettings({ peer: null });
+  const sourceGetter = initFileSettings();
   const cfg = sourceGetter();
   assert.equal(cfg.baseURL, 'https://api.deepseek.com');
   assert.equal(existsSync(getConfigPath()), false); // 迁移不落盘空文件

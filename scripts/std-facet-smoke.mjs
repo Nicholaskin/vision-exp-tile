@@ -141,7 +141,8 @@ try {
 }
 
 /* ---------- 8. src 业务链路零宿主 @deepseek-ai/* import ---------- */
-const chain = ['src/index.js', 'src/runtime.js', 'src/settings-file.js', 'src/host-io.js', 'src/peer-config.js', 'src/device.js', 'src/config.js'];
+// v0.5.0 取消 picturereader 适配后，peer-config.js 已删除，扫描清单同步更新。
+const chain = ['src/index.js', 'src/runtime.js', 'src/settings-file.js', 'src/host-io.js', 'src/device.js', 'src/config.js'];
 let bad = [];
 for (const rel of chain) {
   const src = readFileSync(join(process.cwd(), rel), 'utf8');
