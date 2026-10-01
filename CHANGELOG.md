@@ -35,7 +35,11 @@
 **真机装载实测（2026-10-01 22:15，宿主 0.2.0-rc.2）：成功 ✅**
 
 - 在 DSH 插件管理器启用后，宿主工具目录由 72 → **75** 个，`vision_tile_split` / `vision_tile_recognize` / `vision_region_crop` **三个工具全部在册**（描述文本正确）。
-- 功能实测（真实图 509×953px）：`vision_tile_split` 切为 2 块并落盘 3 个 PNG（overview 276.7 KB + 块 44.6 / 13.0 KB）；`vision_region_crop`（`recognize=false`）落盘区域 PNG 255×286 ✅。
+- 功能实测（真实图 509×953px，三个工具全覆盖）：
+  - `vision_tile_split`：切为 2 块并落盘 3 个 PNG（overview 276.7 KB + 块 44.6 / 13.0 KB）✅
+  - `vision_region_crop`（`recognize=false`）：落盘区域 PNG 255×286 ✅
+  - `vision_tile_recognize`（`strategy=pipeline` 全自动）：完成「整图预检 → 本地 OCR（rapid 引擎）→ 像素网格 → 4 处重点区域识别 → 汇总」，统计 14 块 / 14 请求，产出明细目录（precheck.json / ocr.txt / pixel-grids.txt / 区域 PNG / answer.md）✅
+    （识别文本中的零星错字属本地 OCR 引擎质量范畴，非插件故障；插件设计与实现的正常行为已确认。）
 - **装载经验（重要）**：改动插件代码后**必须彻底退出并重启 DSH 才生效**——热「启用/重新安装」不会重新读文件（Node ESM 模块缓存），报错堆栈还会继续显示**旧代码行号**；本轮即据此判定「磁盘已是新代码、宿主仍跑旧模块」。判据：**把报错行号与磁盘行号对照**。
 
 ## v0.5.0-rc.2（取消 picturereader 适配 · 阶段二首项）
