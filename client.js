@@ -125,6 +125,13 @@ window.__ModuleLoader__.load({
 
       const value = snapshot.value ?? {};
       const writable = snapshot.writable && snapshot.mode === 'host' && snapshot.status === 'ready';
+      /**
+       * 诊断串：不可写时显示在卡片底部，便于定位卡在哪一环
+       * （设置域服务未就绪 / 只读部署 / 条目无法唯一定位 / 无 schema 字段）。
+       */
+      const diag = 'status=' + snapshot.status + ' mode=' + snapshot.mode + ' writable=' + snapshot.writable
+        + ' revision=' + (snapshot.revision === undefined ? '-' : snapshot.revision)
+        + ' 生效字段=' + Object.keys(value).length;
 
       /** 当前显示值：优先暂存值，其次 Host 生效值。 */
       const shown = (field) => {
@@ -234,7 +241,7 @@ window.__ModuleLoader__.load({
           h('button', { className: 'vet-btn', disabled: !writable || busy || !dirty, onClick: discard }, '放弃改动'),
           h('button', { className: 'vet-btn', disabled: !writable || busy, onClick: resetAll }, '全部恢复默认'),
           h('span', { className: 'vet-status' },
-            !writable ? '（当前不可写入：设置服务未就绪或为只读）'
+            !writable ? '（当前不可写入：' + diag + '）'
               : savedAt ? '已保存 ' + savedAt.toLocaleTimeString()
                 : dirty ? '有未保存的改动' : ''
           )

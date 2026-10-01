@@ -60,6 +60,28 @@ export const inject = ['tools'];
  */
 export { Config } from './plugin-config.js';
 
+/**
+ * 注册宿主设置服务策略：本插件**自带** Web 设置页（client.js），按 0.2.0 官方文档
+ * 需在 apply 中于可选的 settings 子级内用 effect 注册 `configure({ auto: false })`，
+ * 把「不要自动生成表单」的策略绑定到本插件 fiber（迟加载或被替换的 Settings 服务
+ * 也会采用该策略）。
+ *
+ * 子级是**可选注入**（因此不写进静态 inject 数组，避免强依赖）：宿主未提供
+ * settings 服务时回调不执行，插件其余功能照常运行。
+ *
+ * @param {object} ctx - Cordis 上下文。
+ */
+function declareSettingsPolicy(ctx) {
+  try {
+    ctx.inject(['settings'], (sctx) => {
+      // 第二参数 ctx.fiber 指明策略归属的插件 fiber（官方范例同款写法）。
+      sctx.effect(() => sctx.settings.configure({ auto: false }, ctx.fiber), 'vision-exp-tile: settings policy');
+    });
+  } catch (error) {
+    ctx.logger?.warn?.(`[vision-exp-tile] 注册设置服务策略失败：${String(error)}`);
+  }
+}
+
 /** 单张图片文件读取字节上限（512 MiB，大图足够）。 */
 const IMAGE_BYTE_CAP = 512 * 1024 * 1024;
 
@@ -1016,6 +1038,9 @@ export function apply(ctx, configRaw) {
       for (const d of registered) { try { d(); } catch { /* 忽略 */ } }
     };
   });
+
+  // ── 宿主设置服务策略：本插件自带 Web 设置页 → 声明不做自动表单生成 ──
+  declareSettingsPolicy(ctx);
 
   // ── 设置来源：配置文件 + 宿主设置页（v0.5.0-rc.4 起为双来源）──
   // ① 配置文件：<DSH_HOME 或 ~/.dsh>/vision-exp-tile.json（settings-file.js）——
