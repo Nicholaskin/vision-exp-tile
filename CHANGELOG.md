@@ -1,7 +1,24 @@
 # 更新日志（Release Changelog）
 
-> 全部版本记录（v0.1.0 → v0.5.0-rc.4），最新在上；本文件 = GitHub Release 的 changelog 栏（由 .github/workflows/release.yml 自动读取）。
+> 全部版本记录（v0.1.0 → v0.5.0），最新在上；本文件 = GitHub Release 的 changelog 栏（由 .github/workflows/release.yml 自动读取）。
 > 注：README 只展示最新一期更新内容（使用者视角）；本文件保留每期完整记录（含历史）。
+
+## v0.5.0（正式版 · 2026-10-01）
+
+> 本版汇总 v0.5.0-rc.1 ~ rc.4 的全部内容（各 rc 的详细记录见下方历史段落）。
+
+**主题：适配 DSH 0.2.0 · 设置界面回归 · 完全独立运行**
+
+1. **适配 DSH 0.2.0（插件装载）**：0.2.0 的插件机制为 Cordis bundle——按 `dsh.profile.bundles[]` 顺序叠加各 bundle 包 `dsh.bundle.patch` 指向的 patch 文件。本版恢复 `dsh.bundle.patch`（→ `cordis.patch.yml`）并把 `main`/`exports["."]` 指回 `src/index.js`（导出 `apply`/`name`/`inject`/`Config`），插件可在 0.2.0 上被识别与装载；同时**保留 dsh-std 标准形态**（`dsh-plugin.json` + `std-facet.js`，子导出 `./std-facet`）以备 DSH 主线将来内置该装载器。
+2. **Web 设置页回归**：0.2.0 移除了旧的 `settingsScope` 客户端接口（旧设置页因此失效），本版按新机制重写——服务端导出 `Config`（37 个 `.volatile()` 字段），客户端以 `ctx.configForms.get('vision-exp-tile')` 读写、把卡片注册进插件页 `plugins.item` slot，控件全部自绘（官方劝阻第三方插件 require 宿主 UI 包）。设置页**覆盖全部 37 项配置**，按六组呈现：识别与接口 / 切块与输出 / 性能与 OCR 池 / GPU 加速 / 设备适配 / 调试与测试；保存后**即时热生效**，支持「放弃改动」与「全部恢复默认」。
+3. **配置来源三级（留空即回落）**：设置页 > 配置文件 `~/.dsh/vision-exp-tile.json` > 环境变量 > 内置默认。
+4. **设置文件化**：设置从宿主 `settings.yaml` 迁移到 `~/.dsh/vision-exp-tile.json`（首次自动迁移旧分区、读取热生效、原子写回）。
+5. **取消 picturereader 适配**：移除共存探测、工具描述分工引导、其配置继承（`vlm_base`/`vlm_model`）与 venv 复用（经实证 own≡peer 为死逻辑），插件完全独立运行。
+6. **其它**：相对 `out_dir` 基准改为「源图所在目录」；清理历史模块；`inject = ['tools']` 服务声明修复（缺失会导致插件启用失败）。
+
+**验证**：`npm test` **176/176**；冒烟三套全过（标准 facet 入口 15 / Cordis 入口 20 / 设置页 19，含「界面字段 ↔ 配置字段双向一致性」防漂移断言）。**真机实测（DSH 0.2.0-rc.2）**：三个工具装载可用；`vision_tile_split`（509×953 → 2 块落盘 + overview）、`vision_region_crop`（落盘 255×286）、`vision_tile_recognize`（pipeline：预检→本地 OCR→像素网格→4 区域识别→汇总，14 块/14 请求）端到端通过；设置页可编辑保存并持久化到 profile 的 `cordis.patch.yml`。
+
+**发布资产**：`vision-exp-tile-v0.5.0.zip`（完整版）与 `vision-exp-tile-v0.5.0-nopython.zip`（零配置版，剔除 `src/ocr-worker.py`，自动降级 Windows OCR）；两包均不含 `node_modules`。
 
 ## v0.5.0-rc.4（设置界面回归 · 按 DSH 0.2.0 新设置机制重写）
 

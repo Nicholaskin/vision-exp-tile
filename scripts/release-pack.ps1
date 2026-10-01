@@ -21,8 +21,9 @@ $distDir = Join-Path $root 'dist'
 New-Item -ItemType Directory -Path $distDir -Force | Out-Null
 
 # 打包清单：完整版 = 全部发布文件（含 client.js 设置界面；v0.3.1 起修正：v0.3.0 曾漏打包 client.js）。
+# v0.5.0 起补入：std-facet.js + dsh-plugin.json（dsh-std 标准形态备用入口）、CHANGELOG.md（全历史）。
 # nopython 版在其基础上去掉 src/ocr-worker.py（自动降级为 Windows OCR 常驻池）。
-$include = @('src', 'tests', 'scripts', 'client.js', 'README.md', 'LICENSE', 'package.json', '.gitignore', 'cordis.patch.yml')
+$include = @('src', 'tests', 'scripts', 'client.js', 'std-facet.js', 'dsh-plugin.json', 'cordis.patch.yml', 'README.md', 'CHANGELOG.md', 'LICENSE', 'package.json', '.gitignore')
 
 function Build-Zip {
   param(
