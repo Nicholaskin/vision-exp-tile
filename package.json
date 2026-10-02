@@ -1,7 +1,7 @@
 {
   "name": "vision-exp-tile",
-  "version": "1.0.0",
-  "description": "为 deepseek-v4-flash-vision-exp 量身定制的大图智能识图插件：整图预检 → 本地 OCR+像素网格（文字）+ 兴趣点按比例切块（最长边 800）→ 汇总；保留全图 800x800 网格切块模式。不代为统计/不显示 token 与费用，实际计费以 API 平台账单为准。v1.0.0：新增目录级批量识别工具 vision_batch_recognize（报告三件套 + 断点续跑）；多模态端点泛化（可接任意 OpenAI 兼容端点与本地视觉模型）；性能改造（组间并发 + 视觉结果缓存 + 全局 API 闸门）。",
+  "version": "1.0.1",
+  "description": "为 deepseek-v4-flash-vision-exp 量身定制的大图智能识图插件：整图预检 → 本地 OCR+像素网格（文字）+ 兴趣点按比例切块（最长边 800）→ 汇总；保留全图 800x800 网格切块模式。不代为统计/不显示 token 与费用，实际计费以 API 平台账单为准。v1.0.1：设置页改版——49 项配置按类别分成 8 个可折叠分组（默认只展开「常用」6 项），新增搜索、组头徽标与「高级选项」次级区块。v1.0.0：目录级批量识别 vision_batch_recognize（报告三件套 + 断点续跑）；多模态端点泛化；性能改造（组间并发 + 结果缓存 + 全局 API 闸门）。",
   "type": "module",
   "main": "src/index.js",
   "exports": {
@@ -28,6 +28,7 @@
     "smoke:std": "node scripts/std-facet-smoke.mjs",
     "smoke:cordis": "node scripts/cordis-entry-smoke.mjs",
     "smoke:client": "node scripts/client-settings-smoke.mjs",
+    "preview:client": "node scripts/client-preview.mjs",
     "release-pack": "powershell -ExecutionPolicy Bypass -File scripts/release-pack.ps1"
   },
   "keywords": [

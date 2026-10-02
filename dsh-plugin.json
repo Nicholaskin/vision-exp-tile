@@ -3,7 +3,7 @@
   "manifestVersion": "0.15",
   "id": "vision.tile",
   "name": "vision-exp-tile",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "facets": {
     "host": {
       "entry": "./std-facet.js",
